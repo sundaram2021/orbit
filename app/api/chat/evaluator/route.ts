@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createOrbitServerClient } from "@/lib/supabase-server";
 import { getAnthropicClient, orbitModel } from "@/lib/ai";
 import { memoryRecall } from "@/lib/memory";
+import { buildEvaluatorChatPrompt } from "@/lib/eval/evaluator-prompt";
 
 export const maxDuration = 120;
 
@@ -69,14 +70,11 @@ export async function POST(request: Request) {
       .limit(10);
     evalContext = JSON.stringify({ agents: agents ?? [], evaluations: evals ?? [] }).slice(0, 4000);
   }
-  const { data: tuning } = await supabase
-    .from("approvals")
-    .select("id, kind, status, created_at")
-    .in("kind", ["prompt_update", "skill_update"])
-    .eq("status", "pending")
-    .limit(10);
-
   const digest = await memoryRecall(user.id, message);
+  const system = buildEvaluatorChatPrompt({
+    evalContext,
+    memoryDigest: digest,
+  });
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -88,7 +86,7 @@ export async function POST(request: Request) {
         const streamResp = await anthropic.messages.create({
           model: orbitModel(),
           max_tokens: 2048,
-          system: `You are Orbit's evaluator agent. You score sub-agent work and propose prompt/skill improvements. Be specific and cite scores. Never claim to apply changes yourself — tuning needs user approval in the approvals inbox (or the evaluator auto-apply setting).\n\nRecent agents + evaluations:\n${evalContext || "(no runs yet)"}\n\nPending tuning approvals:\n${JSON.stringify(tuning ?? []).slice(0, 1000)}\n\nShared memory:\n${digest.slice(0, 1500) || "(none yet)"}`,
+          system,
           messages: [
             ...((history ?? []) as { role: "user" | "assistant"; content: string }[])
               .slice(0, -1)

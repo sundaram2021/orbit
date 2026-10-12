@@ -31,7 +31,7 @@ const KIND_ICON: Record<string, React.ReactNode> = {
   custom: <Bot className="size-4" />,
 };
 
-type DetailTab = "prompt" | "skills" | "log" | "eval";
+type DetailTab = "prompt" | "log" | "eval";
 
 function extractRepo(systemPrompt: string): string | null {
   const m = systemPrompt.match(/Repo:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/);
@@ -100,7 +100,6 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
 
   const tabs: { id: DetailTab; label: string }[] = [
     { id: "prompt", label: "Prompt" },
-    { id: "skills", label: `Skills${agent.skill_definitions?.length ? ` (${agent.skill_definitions.length})` : ""}` },
     { id: "log", label: "Run log" },
     { id: "eval", label: "Evaluation" },
   ];
@@ -197,24 +196,6 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
                 {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />} {copied ? "Copied" : "Copy"}
               </button>
               <pre>{agent.system_prompt}</pre>
-            </div>
-          )}
-
-          {tab === "skills" && (
-            <div>
-              {agent.skill_definitions?.length ? (
-                agent.skill_definitions.map((s) => (
-                  <div key={s.name} className="skill-def">
-                    <p>
-                      <strong>{s.name}</strong>{" "}
-                      <span className="status-badge">{s.custom ? "custom" : "reused"}</span>
-                    </p>
-                    <small>{s.definition}</small>
-                  </div>
-                ))
-              ) : (
-                <p>{agent.skills.join(", ") || "No skills assigned."}</p>
-              )}
             </div>
           )}
 

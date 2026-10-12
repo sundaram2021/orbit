@@ -23,6 +23,9 @@ export const orbitEnv = {
   get neatlogsApiKey(): string {
     return clean(process.env.NEATLOGS_API_KEY);
   },
+  get exaApiKey(): string {
+    return clean(process.env.EXA_API_KEY);
+  },
   get tensorlakeApiKey(): string {
     return clean(process.env.TENSORLAKE_API_KEY);
   },

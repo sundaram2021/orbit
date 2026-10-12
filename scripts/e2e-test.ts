@@ -3,7 +3,7 @@
  * Target repo: https://github.com/sundaram2021/testing-ao
  *
  * Run: bun scripts/e2e-test.ts
- * Tests: Anthropic classify → skills → prompt build → TensorLake sandbox
+ * Tests: Anthropic classify → customized prompt build → TensorLake sandbox
  * (clone + exec + destroy) → NeatLogs trace → Supermemory remember/recall/graph
  * → evaluator scoring → Supabase schema check.
  */
@@ -20,7 +20,6 @@ for (const line of envRaw.split("\n")) {
 
 import { classifyWork } from "../lib/orchestrator/classify";
 import { buildSystemPrompt } from "../lib/orchestrator/prompts";
-import { resolveSkills } from "../lib/orchestrator/skills";
 import { haikuComplete } from "../lib/ai";
 import {
   createSandbox,
@@ -74,7 +73,6 @@ async function main() {
     "evaluations",
     "user_settings",
     "agent_templates",
-    "skill_library",
   ];
   for (const t of tables) {
     try {
@@ -126,23 +124,10 @@ async function main() {
     record("classify", "FAIL", (e as Error).message.slice(0, 300));
   }
 
-  // 4. Resolve skills incl. a novel custom one (REAL Haiku generation).
+  // 4. Build customized prompt (template fallback path — no skills).
   try {
-    const skills = await resolveSkills(sbAny, [
-      ...(classification?.skillsNeeded ?? []),
-      "testing-ao-contracts",
-    ]);
-    const hasCustom = skills.some((s) => s.custom && s.definition.length > 20);
-    record("skills", skills.length > 0 && hasCustom ? "PASS" : "FAIL", JSON.stringify(skills.map((s) => ({ n: s.name, custom: s.custom, len: s.definition.length }))));
-  } catch (e) {
-    record("skills", "FAIL", (e as Error).message.slice(0, 300));
-  }
-
-  // 5. Build system prompt (template fallback path).
-  try {
-    const prompt = await buildSystemPrompt(sbAny, classification ?? { kind: "implementation", title: "t", repo: TEST_REPO, skillsNeeded: [], risk: "low", plan: "p" }, {
+    const prompt = await buildSystemPrompt(sbAny, classification ?? { kind: "implementation", title: "t", repo: TEST_REPO, risk: "low", plan: "p" }, {
       memoryDigest: "Prior eval: prefer bun tests.",
-      skillDefinitions: ["testing-ao-contracts: keep /hello response shape stable."],
       eventContext: "issue body here",
     });
     const ok = prompt.includes(TEST_REPO) && prompt.includes("orbit/");
@@ -213,16 +198,16 @@ async function main() {
   // 9. Evaluator full-context scoring on synthetic run (REAL Haiku call).
   try {
     const raw = await haikuComplete({
-      system: "You are Orbit's evaluator agent. Output ONLY valid JSON with keys: score (0-100), summary, mistakes, prompt_patch, skills_patch.",
+      system: "You are Orbit's evaluator agent. Output ONLY valid JSON with keys: score (0-100), dims (per-dimension 0-25), summary, mistakes, prompt_patch.",
       messages: [
         {
           role: "user",
           content: [
             "## Task\nAdd hello endpoint (kind: implementation)",
-            "## Custom system prompt\nYou are an implementation sub-agent. Repo: sundaram2021/testing-ao. Create branch orbit/x.",
-            "## Skills\n- testing-ao-contracts: keep /hello response shape stable.",
-            "## Step-by-step execution log\n$ ls → exit 0\n$ echo file → exit 0",
-            "## Agent's final output\nCreated hello.json with {\"msg\":\"hello\"}. No tests run.",
+            "## Kind template\nYou are an implementation sub-agent.",
+            "## Whole customized prompt\nYou are an implementation sub-agent. Repo: sundaram2021/testing-ao. Create branch orbit/x.",
+            "## Run log\n$ ls → exit 0\n$ echo file → exit 0",
+            "## Output\nCreated hello.json with {\"msg\":\"hello\"}. No tests run.",
             "Score this work.",
           ].join("\n\n"),
         },

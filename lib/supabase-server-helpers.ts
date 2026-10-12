@@ -40,9 +40,14 @@ export async function fetchServerTasks(): Promise<OrbitTask[]> {
 export async function fetchServerActivities(): Promise<OrbitActivity[]> {
   try {
     const supabase = await createOrbitServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return [];
     const { data, error } = await supabase
       .from("activities")
       .select("*")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
     if (error || !data) return [];

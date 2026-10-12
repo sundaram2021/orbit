@@ -122,28 +122,28 @@ export function BentoSection() {
             </div>
           </article>
 
-          {/* Card 4: Skills lines */}
+          {/* Card 4: Customized prompt lines */}
           <article className="feature">
             <div className="feature-visual">
               <div className="skill-lines">
                 <div>
-                  <Sparkles className="size-3" /> react-patterns <span>SKILL</span>
+                  <Sparkles className="size-3" /> fix-webhook-retry <span>PROMPT</span>
                 </div>
                 <div>
-                  <GitPullRequest className="size-3" /> review-checklist <span>SKILL</span>
+                  <GitPullRequest className="size-3" /> review-checkout-pr <span>PROMPT</span>
                 </div>
                 <div>
-                  <Terminal className="size-3" /> testing-strategy <span>SKILL</span>
+                  <Terminal className="size-3" /> test-auth-flow <span>PROMPT</span>
                 </div>
               </div>
             </div>
             <div className="feature-copy">
               <h3>
-                <Sparkles className="size-4" /> Skills, not just prompts
+                <Sparkles className="size-4" /> Customized prompts, not generic agents
               </h3>
               <p>
-                Task-specific instructions and reusable skills, created by the
-                orchestrator. The right expertise for every issue.
+                A detailed prompt written per task by the orchestrator. The right
+                instructions for every issue.
               </p>
             </div>
           </article>
@@ -176,7 +176,7 @@ export function BentoSection() {
               </h3>
               <p>
                 Neatlogs traces meet continuous evaluation. An evaluator refines
-                subagent prompts, skills, and memory with every task.
+                subagent prompts and memory with every task.
               </p>
             </div>
           </article>

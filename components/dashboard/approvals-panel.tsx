@@ -8,8 +8,6 @@ const KIND_LABELS: Record<ApprovalKind, string> = {
   run_agent: "Run agent",
   publish_pr: "Open PR",
   merge: "Merge PR",
-  prompt_update: "Prompt tuning",
-  skill_update: "Skill tuning",
   github_comment: "Post comment",
 };
 
@@ -26,8 +24,6 @@ function describeApproval(a: Approval): string {
     // ref_id is a plain id
   }
   if (a.kind === "run_agent") return "A sub-agent is ready and waiting to start work.";
-  if (a.kind === "prompt_update") return "The evaluator proposes a prompt improvement.";
-  if (a.kind === "skill_update") return "The evaluator proposes a skill update.";
   return "Waiting for your decision.";
 }
 

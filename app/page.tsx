@@ -3,6 +3,7 @@ import { WorkflowSection } from "@/components/home/workflow-section";
 import { BentoSection } from "@/components/home/bento-section";
 import { StepsSection } from "@/components/home/steps-section";
 import { FooterStage } from "@/components/home/footer-stage";
+import { fetchServerOrbitUser } from "@/lib/supabase-server-helpers";
 
 export const metadata = {
   title: "Orbit — Your autonomous software factory",
@@ -11,13 +12,15 @@ export const metadata = {
 };
 
 export default async function HomePage() {
+  const user = await fetchServerOrbitUser();
+  const isAuthenticated = user !== null;
   return (
     <main className="stages-container">
-      <HeroSection />
+      <HeroSection isAuthenticated={isAuthenticated} />
       <WorkflowSection />
       <BentoSection />
       <StepsSection />
-      <FooterStage />
+      <FooterStage isAuthenticated={isAuthenticated} />
     </main>
   );
 }

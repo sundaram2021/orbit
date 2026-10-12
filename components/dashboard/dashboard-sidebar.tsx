@@ -4,7 +4,7 @@ import React from "react";
 import {
   Bot,
   Cpu,
-  Sparkles,
+  ScrollText,
   Activity,
   Brain,
   Database,
@@ -22,7 +22,7 @@ import { getUserInitials } from "@/lib/format-helpers";
 export type OrbitNav =
   | "orchestrator"
   | "agents"
-  | "skills"
+  | "prompts"
   | "traces"
   | "evaluator"
   | "memory"
@@ -32,7 +32,7 @@ export type OrbitNav =
 export const ORBIT_NAV_LABELS: Record<OrbitNav, string> = {
   orchestrator: "Orchestrator",
   agents: "Agents",
-  skills: "Skills",
+  prompts: "Prompts",
   traces: "Traces",
   evaluator: "Evaluator",
   memory: "Memory",
@@ -41,13 +41,13 @@ export const ORBIT_NAV_LABELS: Record<OrbitNav, string> = {
 };
 
 const MAIN_NAV: { id: OrbitNav; icon: React.ReactNode }[] = [
-  { id: "orchestrator", icon: <Bot className="size-4" /> },
-  { id: "agents", icon: <Cpu className="size-4" /> },
-  { id: "skills", icon: <Sparkles className="size-4" /> },
-  { id: "traces", icon: <Activity className="size-4" /> },
-  { id: "evaluator", icon: <Brain className="size-4" /> },
-  { id: "memory", icon: <Database className="size-4" /> },
-  { id: "activity", icon: <ListVideo className="size-4" /> },
+  { id: "orchestrator", icon: <Bot className="size-5" /> },
+  { id: "agents", icon: <Cpu className="size-5" /> },
+  { id: "prompts", icon: <ScrollText className="size-5" /> },
+  { id: "traces", icon: <Activity className="size-5" /> },
+  { id: "evaluator", icon: <Brain className="size-5" /> },
+  { id: "memory", icon: <Database className="size-5" /> },
+  { id: "activity", icon: <ListVideo className="size-5" /> },
 ];
 
 interface DashboardSidebarProps {
@@ -87,7 +87,7 @@ export function DashboardSidebar({
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {collapsed ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}
+          {collapsed ? <ChevronsRight className="size-5" /> : <ChevronsLeft className="size-5" />}
         </button>
       </div>
 
@@ -124,7 +124,7 @@ export function DashboardSidebar({
             onClick={() => setActiveNav("settings")}
             title="Settings"
           >
-            <Settings className="size-4" />
+            <Settings className="size-5" />
             <span className="collapse-hide">Settings</span>
           </button>
         </nav>
@@ -150,7 +150,7 @@ export function DashboardSidebar({
             aria-label="Sign out"
             className="p-1 rounded hover:bg-accent cursor-pointer"
           >
-            <LogOut className="size-3.5 text-muted-foreground hover:text-foreground" />
+            <LogOut className="size-4 text-muted-foreground hover:text-foreground" />
           </button>
         </div>
       </div>

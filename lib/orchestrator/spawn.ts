@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyWork } from "./classify";
-import { buildSystemPrompt } from "./prompts";
-import { resolveSkills } from "./skills";
+import { buildSystemPrompt, type TaskAttachmentContext } from "./prompts";
 import { memoryRecall, memoryRemember } from "../memory";
 import { newTraceId, traceStart, traceSpan } from "../traces";
 import type { GithubEvent, UserSettings } from "@/types/orbit-types";
@@ -36,10 +35,9 @@ async function notify(
 ): Promise<void> {
   // Notifications live in the activity feed + toasts + bell — NEVER in the
   // chat thread. The orchestrator page is a clean ChatGPT-style chat.
-  void userId;
   try {
     await supabase.from("activities").insert([
-      { title, description, type },
+      { user_id: userId, title, description, type },
     ]);
   } catch (err) {
     console.warn("activity notify failed:", err);
@@ -54,6 +52,14 @@ interface ProposalInput {
   title?: string | null;
   body?: string | null;
   eventId?: string | null;
+  /** New-task composer: attached issue number (if user picked one via "+"). */
+  issueNumber?: number | null;
+  /** New-task composer: attached PR number (if user picked one via "+"). */
+  prNumber?: number | null;
+  /** New-task composer: user's direct instruction typed in the input box. */
+  userInstruction?: string | null;
+  /** New-task composer: pre-fetched issue/PR/file bodies. */
+  attachmentContexts?: TaskAttachmentContext[];
 }
 
 /**
@@ -101,12 +107,16 @@ export async function proposeAndMaybeRun(
     `${classification.title} ${classification.repo}`
   );
 
-  const skills = await resolveSkills(supabase, classification.skillsNeeded);
-
+  // Every task gets a detailed customized prompt — no skills. See
+  // buildSystemPrompt: the per-task prompt carries all task context.
+  const isReview = classification.kind === "review" || input.source.includes("review") || input.source.includes("pr");
   const systemPrompt = await buildSystemPrompt(supabase, classification, {
     memoryDigest,
-    skillDefinitions: skills.map((s) => `${s.name}: ${s.definition}`),
     eventContext: input.body ?? undefined,
+    userInstruction: input.userInstruction ?? undefined,
+    attachmentContexts: input.attachmentContexts,
+    issueNumber: input.issueNumber ?? (!isReview ? input.number ?? null : null),
+    prNumber: input.prNumber ?? (isReview ? input.number ?? null : null),
   });
 
   const traceId = newTraceId();
@@ -125,8 +135,9 @@ export async function proposeAndMaybeRun(
     kind: classification.kind,
     title: classification.title,
     system_prompt: systemPrompt,
-    skills: skills.map((s) => s.name),
-    skill_definitions: skills,
+    // Legacy skill columns stay empty — customized prompts replaced skills.
+    skills: [],
+    skill_definitions: [],
     status: "awaiting_approval",
     trace_id: traceId,
   });
@@ -145,7 +156,7 @@ export async function proposeAndMaybeRun(
     [
       `Orbit spawned a ${classification.kind} sub-agent titled "${classification.title}" for repository ${classification.repo}.`,
       `Execution plan: ${classification.plan}`,
-      `Assigned skills: ${skills.map((s) => s.name).join(", ") || "none"}.`,
+      `Customized prompt written for this task.`,
       `Risk level: ${classification.risk}. Source: ${input.source}.`,
     ].join(" "),
     { agent_id: agentId }
@@ -156,7 +167,8 @@ export async function proposeAndMaybeRun(
       supabase,
       input.userId,
       `Agent started: ${classification.title}`,
-      `Auto-approval is on — the ${classification.kind} agent is working in a sandbox now.`
+      `Auto-approval is on — the ${classification.kind} agent is working in a sandbox now.`,
+      isReview ? "pr" : "issue"
     );
     // Fire-and-forget: the run loop outlives the request.
     const { runSubAgent } = await import("../sandbox/run");
@@ -171,7 +183,8 @@ export async function proposeAndMaybeRun(
     supabase,
     input.userId,
     `Your agent is ready: ${classification.title}`,
-    `A ${classification.kind} agent with ${skills.length} skill(s) is waiting for your approval in ${classification.repo}.`
+    `A ${classification.kind} agent is waiting for your approval in the chat bar.`,
+    isReview ? "pr" : "issue"
   );
   return { agentId, autoStarted: false };
 }

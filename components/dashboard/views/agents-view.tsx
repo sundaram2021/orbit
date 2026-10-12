@@ -76,8 +76,7 @@ export function AgentsView() {
         a.title.toLowerCase().includes(q) ||
         a.kind.toLowerCase().includes(q) ||
         a.status.replace(/_/g, " ").includes(q) ||
-        repo.includes(q) ||
-        a.skills.some((s) => s.toLowerCase().includes(q))
+        repo.includes(q)
       );
     });
   }, [agents, query, filter]);
@@ -117,7 +116,7 @@ export function AgentsView() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by title, repo, kind, status, skill…"
+          placeholder="Search by title, repo, kind, status…"
           aria-label="Search agents"
         />
       </div>

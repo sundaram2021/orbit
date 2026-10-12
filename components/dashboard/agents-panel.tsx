@@ -63,7 +63,7 @@ export function AgentsPanel() {
                 {a.title} <span className={`status-badge status-${a.status}`}>{STATUS_LABEL[a.status]}</span>
               </div>
               <div className="item-desc">
-                {a.kind} · {a.skills.join(", ") || "no skills"}
+                {a.kind}
                 {a.eval_score != null && ` · score ${a.eval_score}`}
               </div>
             </div>

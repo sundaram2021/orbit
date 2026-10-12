@@ -3,16 +3,13 @@
 import React, { useState, useEffect } from "react";
 import { OrbitTask, OrbitActivity, OrbitRepo, OrbitUser } from "@/types/orbit-types";
 import { useAuth } from "@/hooks/use-auth";
-import { useModal } from "@/hooks/use-modal";
 import { createOrbitBrowserClient } from "@/lib/supabase-client";
-import { createBrowserTask } from "@/lib/supabase-helpers";
 import { Toaster } from "@/components/common/toaster";
 import { DashboardSidebar, OrbitNav } from "./dashboard-sidebar";
 import { DashboardHeader } from "./dashboard-header";
-import { TaskModal } from "./task-modal";
 import { OrchestratorView } from "./views/orchestrator-view";
 import { AgentsView } from "./views/agents-view";
-import { SkillsView } from "./views/skills-view";
+import { PromptsView } from "./views/prompts-view";
 import { TracesView } from "./views/traces-view";
 import { EvaluatorView } from "./views/evaluator-view";
 import { MemoryView } from "./views/memory-view";
@@ -28,13 +25,11 @@ interface DashboardViewProps {
 
 export function DashboardView({
   initialUser,
-  initialRepositories,
 }: DashboardViewProps) {
   const { user, logout } = useAuth(initialUser);
   const [activeNav, setActiveNav] = useState<OrbitNav>("orchestrator");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const taskModal = useModal();
 
   useEffect(() => {
     // Realtime: nudge all views the moment anything changes.
@@ -59,40 +54,20 @@ export function DashboardView({
     };
   }, []);
 
-  // "New task" keeps a task row AND proposes a sub-agent through the pipeline.
-  const dispatchTask = async (data: {
-    title: string;
-    description: string;
-    repo_name: string;
-    assigned_agent: string;
-  }) => {
-    try {
-      await createBrowserTask({
-        title: data.title,
-        description: data.description,
-        repo_name: data.repo_name,
-        assigned_agent: data.assigned_agent,
-        status: "running",
-        issue_number: Math.floor(100 + Math.random() * 900),
-      });
-    } catch {
-      // task row is best-effort; the agent proposal matters
-    }
-    try {
-      await fetch("/api/agents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          repo: data.repo_name,
-          title: data.title,
-          description: data.description,
-        }),
-      });
-    } catch {
-      // proposal can be retried from orchestrator chat
-    }
-    window.dispatchEvent(new Event("orbit:refresh"));
-  };
+  useEffect(() => {
+    // Background polling: check every 60s while dashboard is active
+    const pollTimer = setInterval(() => {
+      void fetch("/api/github/poll", { method: "POST" })
+        .then((r) => r.json())
+        .then((data: { proposed?: number }) => {
+          if ((data.proposed ?? 0) > 0) {
+            window.dispatchEvent(new Event("orbit:refresh"));
+          }
+        })
+        .catch(() => {});
+    }, 60000);
+    return () => clearInterval(pollTimer);
+  }, []);
 
   return (
     <main className="dashboard">
@@ -118,9 +93,9 @@ export function DashboardView({
         />
 
         <div className="dash-content">
-          {activeNav === "orchestrator" && <OrchestratorView onNewTask={() => taskModal.open()} />}
+          {activeNav === "orchestrator" && <OrchestratorView />}
           {activeNav === "agents" && <AgentsView />}
-          {activeNav === "skills" && <SkillsView />}
+          {activeNav === "prompts" && <PromptsView />}
           {activeNav === "traces" && <TracesView />}
           {activeNav === "evaluator" && <EvaluatorView />}
           {activeNav === "memory" && <MemoryView />}
@@ -128,13 +103,6 @@ export function DashboardView({
           {activeNav === "settings" && <SettingsView />}
         </div>
       </div>
-
-      <TaskModal
-        isOpen={taskModal.isOpen}
-        onClose={taskModal.close}
-        repositories={initialRepositories}
-        onCreateTask={dispatchTask}
-      />
     </main>
   );
 }

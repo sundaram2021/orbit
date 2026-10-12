@@ -14,6 +14,22 @@ export interface ChatThread {
   message_count: number;
 }
 
+export interface ChatAttachment {
+  type: "issue" | "pr" | "file" | "image";
+  /** Issue / PR number (for issue/pr attachments). */
+  number?: number;
+  /** Issue / PR title snapshot (for display + prompt). */
+  title?: string;
+  /** File / image name (for file/image attachments). */
+  name?: string;
+  /** File text content (truncated client-side, for file attachments). */
+  content?: string;
+  /** Data-URL (base64, downscaled client-side) for image attachments. */
+  dataUrl?: string;
+  /** MIME type for image attachments (e.g. image/png). */
+  mediaType?: string;
+}
+
 /**
  * Legacy system notices ("Agent started…", "Your agent is ready…") that were
  * written into chat threads before notifications moved to toasts/activity.
@@ -33,19 +49,18 @@ export function useChat(kind: ChatKind) {
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Selected repo context (orchestrator): every request acts on this repo
-  // unless the user names another one. Persisted across sessions.
   const [activeRepo, setActiveRepoState] = useState<string>("");
+  const [activeStep, setActiveStep] = useState<string | null>(null);
   const activeRepoRef = useRef<string>("");
   const threadIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     // Intentional: hydrate persisted repo/thread on mount.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     try {
       const saved = localStorage.getItem(ACTIVE_REPO_KEY) ?? "";
       activeRepoRef.current = saved;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveRepoState(saved);
       threadIdRef.current = localStorage.getItem(ACTIVE_THREAD_KEY);
     } catch {
@@ -144,9 +159,10 @@ export function useChat(kind: ChatKind) {
   }, [kind, loadThreads, selectThread]);
 
   const send = useCallback(
-    async (content: string, opts?: { repo?: string }) => {
+    async (content: string, opts?: { repo?: string; attachments?: ChatAttachment[] }) => {
       const text = content.trim();
-      if (!text || isStreaming) return;
+      const attachments = (opts?.attachments ?? []).filter(Boolean);
+      if ((!text && attachments.length === 0) || isStreaming) return;
       setError(null);
       setIsStreaming(true);
 
@@ -154,7 +170,21 @@ export function useChat(kind: ChatKind) {
         id: `local-${Date.now()}`,
         thread_id: "",
         role: "user",
-        content: text,
+        content:
+          attachments.length > 0
+            ? [
+                text,
+                ...attachments.map((a) =>
+                  a.type === "file"
+                    ? `[file: ${a.name}]`
+                    : a.type === "image"
+                      ? `[image: ${a.name ?? "pasted image"}]`
+                      : `[${a.type} #${a.number}: ${a.title ?? ""}]`.trim()
+                ),
+              ]
+                .filter(Boolean)
+                .join("\n")
+            : text,
       };
       setMessages((prev) => [...prev, optimistic]);
 
@@ -173,6 +203,7 @@ export function useChat(kind: ChatKind) {
             message: text,
             repo: opts?.repo || activeRepoRef.current || undefined,
             thread_id: threadIdRef.current || undefined,
+            attachments: attachments.length > 0 ? attachments : undefined,
           }),
           signal: abortRef.current.signal,
         });
@@ -190,25 +221,86 @@ export function useChat(kind: ChatKind) {
           for (const part of parts) {
             const line = part.trim();
             if (!line.startsWith("data:")) continue;
-            const payload = JSON.parse(line.slice(5).trim()) as {
-              delta?: string;
-              done?: boolean;
-            };
-            if (payload.delta) {
-              const delta = payload.delta;
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + delta } : m))
-              );
+            try {
+              const payload = JSON.parse(line.slice(5).trim()) as {
+                type?: string;
+                delta?: string;
+                done?: boolean;
+                status?: string;
+                tool?: string;
+                label?: string;
+                steps?: Array<{ tool: string; label: string; status: "done" | "error" }>;
+              };
+              if (payload.type === "status" && payload.label) {
+                setActiveStep(payload.label);
+              } else if (payload.type === "step_start" && payload.label) {
+                setActiveStep(payload.label);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          steps: [
+                            ...(m.steps ?? []),
+                            { tool: payload.tool ?? "", label: payload.label ?? "", status: "running" },
+                          ],
+                        }
+                      : m
+                  )
+                );
+              } else if (payload.type === "step_done" && payload.tool) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          steps: (m.steps ?? []).map((s) =>
+                            s.tool === payload.tool && s.status === "running"
+                              ? { ...s, status: "done", label: payload.label ?? s.label }
+                              : s
+                          ),
+                        }
+                      : m
+                  )
+                );
+              } else if (payload.delta) {
+                setActiveStep(null);
+                const delta = payload.delta;
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + delta } : m))
+                );
+              } else if (payload.done) {
+                setActiveStep(null);
+                if (payload.steps) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId ? { ...m, steps: payload.steps } : m
+                    )
+                  );
+                }
+              }
+            } catch {
+              // ignore json parse error
             }
           }
         }
         // Refresh ids from server (replaces optimistic entries).
-        const refreshed = await fetch(
+        const refreshed = (await fetch(
           `/api/chat/${kind}${threadIdRef.current ? `?thread_id=${encodeURIComponent(threadIdRef.current)}` : ""}`
-        ).then((r) => r.json()) as {
+        ).then((r) => r.json())) as {
           messages: ChatMessage[];
         };
-        setMessages((refreshed.messages ?? []).filter((m) => !isNotice(m.content)));
+        setMessages((prev) => {
+          const lastWithSteps = prev.find((m) => m.id === assistantId && m.steps && m.steps.length > 0);
+          return (refreshed.messages ?? [])
+            .filter((m) => !isNotice(m.content))
+            .map((m, idx, arr) => {
+              if (idx === arr.length - 1 && m.role === "assistant" && lastWithSteps?.steps) {
+                return { ...m, steps: lastWithSteps.steps };
+              }
+              return m;
+            });
+        });
         // Titles/counts may have changed (auto-title on first message).
         void loadThreads();
       } catch (err) {
@@ -217,6 +309,7 @@ export function useChat(kind: ChatKind) {
         setMessages((prev) => prev.filter((m) => m.id !== assistantId));
       } finally {
         setIsStreaming(false);
+        setActiveStep(null);
       }
     },
     [kind, isStreaming, loadThreads]
@@ -225,6 +318,7 @@ export function useChat(kind: ChatKind) {
   const stop = useCallback(() => {
     abortRef.current?.abort();
     setIsStreaming(false);
+    setActiveStep(null);
   }, []);
 
   return {
@@ -233,6 +327,7 @@ export function useChat(kind: ChatKind) {
     threadId,
     isLoading,
     isStreaming,
+    activeStep,
     error,
     send,
     stop,

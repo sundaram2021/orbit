@@ -23,6 +23,7 @@ export interface OrbitTask {
 
 export interface OrbitActivity {
   id: string;
+  user_id?: string;
   title: string;
   description: string;
   type: "pr" | "sparkles" | "brain" | "issue" | "event";
@@ -114,8 +115,6 @@ export type ApprovalKind =
   | "run_agent"
   | "publish_pr"
   | "merge"
-  | "prompt_update"
-  | "skill_update"
   | "github_comment";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
@@ -130,12 +129,19 @@ export interface Approval {
   decided_at?: string | null;
 }
 
+export interface ChatStep {
+  tool: string;
+  label: string;
+  status: "running" | "done" | "error";
+}
+
 export interface ChatMessage {
   id: string;
   thread_id: string;
   role: "user" | "assistant";
   content: string;
   created_at?: string;
+  steps?: ChatStep[];
 }
 
 export type ChatKind = "orchestrator" | "evaluator";
@@ -147,7 +153,6 @@ export interface Evaluation {
   rubric: Record<string, number>;
   summary: string;
   prompt_patch?: string | null;
-  skills_patch?: string[] | null;
   status: "proposed" | "applied" | "dismissed";
   created_at?: string;
 }

@@ -13,10 +13,12 @@ export async function GET(request: Request) {
     Number(new URL(request.url).searchParams.get("limit") ?? 100) || 100,
     200
   );
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("activities")
     .select("*")
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(limit);
+  if (error) return NextResponse.json({ activities: [], error: error.message });
   return NextResponse.json({ activities: data ?? [] });
 }

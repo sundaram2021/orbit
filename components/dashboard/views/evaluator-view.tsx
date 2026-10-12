@@ -89,7 +89,7 @@ export function EvaluatorView() {
           <h1>Evaluator</h1>
           <p>
             {evaluations.length} evaluations · mean score {avg}. Every finished agent is scored
-            automatically — prompt and skill improvements wait for your approval.
+            automatically from its prompt, run log, and output — improvements apply directly.
           </p>
         </div>
       </div>
@@ -197,12 +197,11 @@ export function EvaluatorView() {
                     </>
                   )}
 
-                  <h4>Evaluated resources</h4>
+                  <h4>Evaluated evidence</h4>
                   <p>
-                    Custom prompt ({(a?.system_prompt ?? "").length} chars)
+                    Kind template · whole customized prompt ({(a?.system_prompt ?? "").length} chars)
                     {" · "}
-                    {(a?.skills ?? []).length} skill{(a?.skills ?? []).length === 1 ? "" : "s"}
-                    {((a?.skills ?? []).length > 0) && `: ${(a?.skills ?? []).join(", ")}`}
+                    run log {a?.run_log ? "reviewed" : "missing"}
                     {" · "}
                     output {e.summary ? "reviewed" : "missing"}
                   </p>
@@ -214,19 +213,14 @@ export function EvaluatorView() {
                   )}
 
                   <h4>Recommendations</h4>
-                  {!e.prompt_patch && !(e.skills_patch?.length) && (
-                    <p>No changes recommended — prompts and skills stay as they are.</p>
+                  {!e.prompt_patch && (
+                    <p>No changes recommended — prompts stay as they are.</p>
                   )}
                   {e.prompt_patch && (
                     <>
-                      <p><strong>Prompt improvement</strong> (awaits approval unless auto-apply is on)</p>
+                      <p><strong>Prompt improvement</strong> (applied directly{e.status === "applied" ? "" : " — pending"})</p>
                       <pre>{e.prompt_patch}</pre>
                     </>
-                  )}
-                  {(e.skills_patch?.length ?? 0) > 0 && (
-                    <p>
-                      <strong>Suggested skills:</strong> {(e.skills_patch ?? []).join(", ")}
-                    </p>
                   )}
                 </div>
               )}

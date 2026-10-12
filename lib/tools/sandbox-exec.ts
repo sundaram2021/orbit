@@ -105,4 +105,67 @@ export function registerSandboxExecTools(): void {
       };
     },
   });
+
+  registerTool({
+    name: "self_diff",
+    description:
+      "Review your own changes: current branch, uncommitted status, commits vs base, and diff stat (or full diff). Call before finish_task to catch scope creep and write an accurate summary. Read-only.",
+    input_schema: {
+      type: "object",
+      properties: {
+        base: { type: "string", description: "Base ref to compare against (auto-detected from origin when omitted)" },
+        full: { type: "string", description: 'Set to "true" for the full diff, not just the stat' },
+      },
+    },
+    permission: "auto",
+    handler: async (input, ctx) => {
+      if (!ctx.sandboxId || !ctx.workdir) {
+        return { ok: false, output: "No active sandbox for this agent." };
+      }
+      const sb = { id: ctx.sandboxId, mock: false };
+      const workdir: string = ctx.workdir;
+      const q = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+      const run = async (cmd: string): Promise<string> => {
+        const r = await sandboxExec(sb, `cd ${q(workdir)} && ${cmd}`, {
+          workingDir: workdir,
+        });
+        return r.stdout.trim();
+      };
+      try {
+        // Resolve the base ref: explicit > origin/HEAD > origin/main > origin/master.
+        let base = (input.base ?? "").trim();
+        if (!base) {
+          const headRef = await run("git symbolic-ref --quiet --short refs/remotes/origin/HEAD || true");
+          const candidates = [headRef, "origin/main", "origin/master"].filter(Boolean);
+          base = "";
+          for (const c of candidates) {
+            const ok = await run(`git rev-parse --verify --quiet ${q(c)} || true`);
+            if (ok) {
+              base = c;
+              break;
+            }
+          }
+        }
+        const branch = (await run("git branch --show-current")) || "(detached)";
+        const status = (await run("git status --short | head -30")) || "(clean)";
+        const sections = [`Branch: ${branch}`, `Uncommitted:\n${status}`];
+        if (base) {
+          const log = (await run(`git log --oneline ${q(base)}..HEAD | head -20`)) || "(no commits yet)";
+          const stat =
+            (await run(`git diff --stat ${q(base)}...HEAD | tail -20`)) || "(no changes vs base)";
+          sections.push(`Commits vs ${base}:\n${log}`, `Diff stat vs ${base}:\n${stat}`);
+          if ((input.full ?? "").toLowerCase() === "true") {
+            const diff = await run(`git diff ${q(base)}...HEAD | head -400`);
+            sections.push(`Full diff (truncated):\n${diff || "(empty)"}`);
+          }
+        } else {
+          sections.push("(could not resolve base ref — showing working tree only)");
+        }
+        const out = sections.join("\n\n");
+        return { ok: true, output: out.length > 9000 ? out.slice(0, 9000) + "\n…(truncated)" : out };
+      } catch (err) {
+        return { ok: false, output: `self_diff failed: ${(err as Error).message.slice(0, 300)}` };
+      }
+    },
+  });
 }

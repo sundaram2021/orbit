@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { X, MessageSquareText, Plus, Loader2 } from "lucide-react";
 import { ChatThread } from "@/hooks/use-chat";
 
-interface ChatHistoryModalProps {
+interface ChatHistoryPanelProps {
   isOpen: boolean;
   onClose: () => void;
   threads: ChatThread[];
@@ -22,7 +22,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export function ChatHistoryModal({
+export function ChatHistoryPanel({
   isOpen,
   onClose,
   threads,
@@ -30,13 +30,23 @@ export function ChatHistoryModal({
   isLoading,
   onSelect,
   onNew,
-}: ChatHistoryModalProps) {
+}: ChatHistoryPanelProps) {
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="task-modal history-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-title">
+    <>
+      <div className="history-backdrop" onClick={onClose} aria-hidden="true" />
+      <aside className="history-panel" aria-label="Chat history">
+        <div className="history-panel-head">
           <h2>Chat history</h2>
           <button
             type="button"
@@ -80,7 +90,7 @@ export function ChatHistoryModal({
             </button>
           ))}
         </div>
-      </div>
-    </div>
+      </aside>
+    </>
   );
 }

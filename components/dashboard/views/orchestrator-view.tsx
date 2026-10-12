@@ -1,11 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { Plus, History } from "lucide-react";
-import { useModal } from "@/hooks/use-modal";
 import { useChat } from "@/hooks/use-chat";
 import { ChatPanel } from "@/components/chat/chat-panel";
-import { ChatHistoryModal } from "@/components/chat/chat-history-modal";
+import { ChatHistoryPanel } from "@/components/chat/chat-history-panel";
 
 const ORCHESTRATOR_SUGGESTIONS = [
   "What assigned issues do I have?",
@@ -13,9 +12,9 @@ const ORCHESTRATOR_SUGGESTIONS = [
   "Create a PR for my recent changes",
 ];
 
-export function OrchestratorView({ onNewTask }: { onNewTask: () => void }) {
+export function OrchestratorView() {
   const chat = useChat("orchestrator");
-  const historyModal = useModal();
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   return (
     <div className="orch-page">
@@ -24,9 +23,11 @@ export function OrchestratorView({ onNewTask }: { onNewTask: () => void }) {
           type="button"
           onClick={() => {
             void chat.refreshThreads();
-            historyModal.open();
+            setHistoryOpen(true);
           }}
           className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors border border-input bg-background hover:bg-accent h-9 px-4 py-2"
+          aria-expanded={historyOpen}
+          aria-label="Open chat history"
         >
           <History className="size-4" />
           History
@@ -34,7 +35,11 @@ export function OrchestratorView({ onNewTask }: { onNewTask: () => void }) {
         <button
           id="new-task-btn"
           type="button"
-          onClick={onNewTask}
+          onClick={() => {
+            // New-task workflow: start a fresh centered chat. The user picks
+            // a repo, optionally attaches file/issue/PR via "+", then prompts.
+            void chat.newChat();
+          }}
           className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2"
         >
           <Plus className="size-4" />
@@ -51,19 +56,19 @@ export function OrchestratorView({ onNewTask }: { onNewTask: () => void }) {
         chat={chat}
       />
 
-      <ChatHistoryModal
-        isOpen={historyModal.isOpen}
-        onClose={historyModal.close}
+      <ChatHistoryPanel
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
         threads={chat.threads}
         activeThreadId={chat.threadId}
         isLoading={chat.isLoading && chat.threads.length === 0}
-        onSelect={(id) => {
+        onSelect={(id: string) => {
           void chat.selectThread(id);
-          historyModal.close();
+          setHistoryOpen(false);
         }}
         onNew={() => {
           void chat.newChat();
-          historyModal.close();
+          setHistoryOpen(false);
         }}
       />
     </div>

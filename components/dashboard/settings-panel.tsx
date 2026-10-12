@@ -24,7 +24,7 @@ export function SettingsPanel() {
       .finally(() => setIsLoading(false));
   }, []);
 
-  const toggle = async (key: "orchestrator_auto_approve" | "evaluator_auto_apply") => {
+  const toggle = async (key: "orchestrator_auto_approve") => {
     if (!settings || isSaving) return;
     const prev = { ...settings };
     const next = { ...settings, [key]: !settings[key] };
@@ -37,7 +37,6 @@ export function SettingsPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orchestrator_auto_approve: next.orchestrator_auto_approve,
-          evaluator_auto_apply: next.evaluator_auto_apply,
         }),
       });
       const data = (await res.json()) as { settings?: UserSettings; error?: string };
@@ -76,7 +75,7 @@ export function SettingsPanel() {
           <div className="setting-row" onClick={() => void toggle("orchestrator_auto_approve")}>
             <div>
               <p>Auto-approve agent runs</p>
-              <small>Orchestrator runs, pushes, opens and merges PRs without asking. Off by default.</small>
+              <small>When ON: sub-agent starts immediately on assignment and opens PR or reviews PR. When OFF: asks for approval in chat bar first.</small>
             </div>
             <button
               type="button"
@@ -87,26 +86,6 @@ export function SettingsPanel() {
               onClick={(e) => {
                 e.stopPropagation();
                 void toggle("orchestrator_auto_approve");
-              }}
-            >
-              <span />
-            </button>
-          </div>
-
-          <div className="setting-row" onClick={() => void toggle("evaluator_auto_apply")}>
-            <div>
-              <p>Evaluator auto-apply tuning</p>
-              <small>Evaluator rewrites sub-agent prompts and skills on its own. Off by default.</small>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={settings.evaluator_auto_apply}
-              aria-label="Evaluator auto-apply tuning"
-              className={`toggle ${settings.evaluator_auto_apply ? "toggle-on" : ""}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                void toggle("evaluator_auto_apply");
               }}
             >
               <span />

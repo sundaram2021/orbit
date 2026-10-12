@@ -43,7 +43,7 @@ export async function GET(request: Request) {
   return NextResponse.json({ agents: data ?? [] });
 }
 
-/** Manually propose a sub-agent (dashboard "New task" → orchestrator pipeline). */
+/** Manually propose a sub-agent (legacy direct API; new UI uses orchestrator chat). */
 export async function POST(request: Request) {
   const supabase = await createOrbitServerClient();
   const {
@@ -55,6 +55,9 @@ export async function POST(request: Request) {
     repo?: string;
     title?: string;
     description?: string;
+    issueNumber?: number | null;
+    prNumber?: number | null;
+    userInstruction?: string | null;
   };
   if (!body.title?.trim() || !body.repo?.trim()) {
     return NextResponse.json({ error: "title and repo are required" }, { status: 400 });
@@ -68,6 +71,9 @@ export async function POST(request: Request) {
       repo: body.repo.trim(),
       title: body.title.trim(),
       body: body.description?.trim() || null,
+      issueNumber: body.issueNumber ?? null,
+      prNumber: body.prNumber ?? null,
+      userInstruction: body.userInstruction ?? null,
     });
     return NextResponse.json(result);
   } catch (err) {

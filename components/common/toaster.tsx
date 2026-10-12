@@ -40,10 +40,18 @@ export function Toaster() {
           if (!seen.current.has(id)) {
             seen.current.add(id);
             if (primed.current) {
+              const approvalTitle =
+                a.kind === "run_agent"
+                  ? "Agent Approval Required"
+                  : `Approval needed: ${a.kind.replace(/_/g, " ")}`;
+              const approvalBody =
+                a.kind === "run_agent"
+                  ? "An agent is ready to run. Approve it in the chat bar."
+                  : "Review it in the notifications bell.";
               fresh.push({
                 id,
-                title: `Approval needed: ${a.kind.replace(/_/g, " ")}`,
-                body: "Review it in the notifications bell.",
+                title: approvalTitle,
+                body: approvalBody,
               });
             }
           }
@@ -63,19 +71,37 @@ export function Toaster() {
       }
       primed.current = true;
       for (const t of fresh.slice(0, 3)) push(t);
-      if (fresh.length > 0) window.dispatchEvent(new Event("orbit:refresh"));
     } catch {
       // toasts must never break the page
     }
   }, [push]);
 
   useEffect(() => {
-    // Intentional: prime seen-ids on mount, then poll.
+    // Prime seen-ids on mount, then poll + listen to realtime refresh events.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void check();
-    const t = setInterval(check, 15000);
-    return () => clearInterval(t);
-  }, [check]);
+    const t = setInterval(check, 10000);
+
+    const onRefresh = () => void check();
+    window.addEventListener("orbit:refresh", onRefresh);
+
+    const onDirectToast = (e: Event) => {
+      const detail = (e as CustomEvent<Toast>).detail;
+      if (detail?.id && detail?.title) {
+        if (!seen.current.has(detail.id)) {
+          seen.current.add(detail.id);
+          push(detail);
+        }
+      }
+    };
+    window.addEventListener("orbit:toast", onDirectToast);
+
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("orbit:refresh", onRefresh);
+      window.removeEventListener("orbit:toast", onDirectToast);
+    };
+  }, [check, push]);
 
   if (toasts.length === 0) return null;
 

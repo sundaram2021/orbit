@@ -5,7 +5,6 @@ export interface Classification {
   kind: SubAgentKind;
   title: string;
   repo: string;
-  skillsNeeded: string[];
   risk: "low" | "medium" | "high";
   plan: string;
 }
@@ -24,7 +23,7 @@ export async function classifyWork(input: {
   const prompt = `You are the classifier for Orbit, a GitHub orchestration system.
 Given a GitHub event or user request, output ONLY valid JSON (no markdown fences) with keys:
 kind ("implementation" | "review" | "testing" | "custom"), title (short task title),
-repo (owner/name), skillsNeeded (array of short skill names needed for THIS task only — empty array if no special skills are needed, e.g. "nextjs-16", "supabase-rls", "gh-pr-workflow", or new custom names),
+repo (owner/name),
 risk ("low" | "medium" | "high"), plan (2-4 sentence execution plan).
 
 Event source: ${input.source}
@@ -41,31 +40,42 @@ ${(input.body ?? "").slice(0, 4000)}`;
       maxTokens: 1024,
     });
     const parsed = JSON.parse(raw) as Partial<Classification>;
+    const defaultKind: SubAgentKind =
+      input.source.includes("review") || input.source.includes("pr")
+        ? "review"
+        : input.source.includes("issue")
+          ? "implementation"
+          : "custom";
+
     const kind: SubAgentKind =
       parsed.kind === "implementation" ||
       parsed.kind === "review" ||
       parsed.kind === "testing"
         ? parsed.kind
-        : "custom";
+        : defaultKind;
     return {
       kind,
       title: parsed.title || input.title || `${input.source} in ${input.repo}`,
       repo: input.repo,
-      skillsNeeded: Array.isArray(parsed.skillsNeeded)
-        ? parsed.skillsNeeded.slice(0, 6).map(String)
-        : [],
       risk: parsed.risk === "high" || parsed.risk === "medium" ? parsed.risk : "low",
-      plan: parsed.plan || "Investigate, implement, test, open PR.",
+      plan:
+        parsed.plan ||
+        (kind === "review"
+          ? "Inspect PR changes, check edge cases and conventions, and submit code review."
+          : "Investigate, implement, test, open PR."),
     };
   } catch (err) {
     console.warn("Classifier fallback:", err);
+    const kind: SubAgentKind = input.source.includes("review") ? "review" : "implementation";
     return {
-      kind: "custom",
+      kind,
       title: input.title || `${input.source} in ${input.repo}`,
       repo: input.repo,
-      skillsNeeded: [],
       risk: "low",
-      plan: "Investigate, implement, test, open PR.",
+      plan:
+        kind === "review"
+          ? "Inspect PR changes, check edge cases and conventions, and submit code review."
+          : "Investigate, implement, test, open PR.",
     };
   }
 }

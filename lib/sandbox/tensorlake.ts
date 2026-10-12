@@ -24,13 +24,44 @@ function shouldMock(): boolean {
   return orbitEnv.tensorlakeMock || !orbitEnv.tensorlakeApiKey;
 }
 
+/** List active sandboxes. */
+export async function listSandboxes(): Promise<Array<{ id: string; name?: string; status?: string }>> {
+  if (shouldMock()) return [];
+  try {
+    const res = await fetch(`${API}/sandboxes`, {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    if (!res.ok) return [];
+    const data = await res.json() as { sandboxes?: Array<{ id: string; name?: string; status?: string }>; data?: Array<{ id: string; name?: string; status?: string }> } | Array<{ id: string; name?: string; status?: string }>;
+    if (Array.isArray(data)) return data;
+    return data.sandboxes ?? data.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Terminate any orphaned/dangling sandboxes. */
+export async function cleanupSandboxes(): Promise<number> {
+  const sandboxes = await listSandboxes();
+  let cleaned = 0;
+  for (const s of sandboxes) {
+    const id = s.id;
+    if (id) {
+      await destroySandbox({ id, mock: false });
+      cleaned++;
+    }
+  }
+  return cleaned;
+}
+
 /** Create an ephemeral sandbox with internet access (for git + npm). */
 export async function createSandbox(name: string): Promise<SandboxHandle> {
   if (shouldMock()) {
     console.warn("TensorLake: MOCK mode (no API key or TENSORLAKE_MOCK=true)");
     return { id: `mock-${Date.now().toString(36)}`, mock: true };
   }
-  const res = await fetch(`${API}/sandboxes`, {
+  let res = await fetch(`${API}/sandboxes`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({
@@ -42,7 +73,27 @@ export async function createSandbox(name: string): Promise<SandboxHandle> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`TensorLake create failed (${res.status}): ${text.slice(0, 300)}`);
+    if (/quota/i.test(text)) {
+      console.warn("TensorLake quota reached — attempting auto-cleanup of orphaned sandboxes...");
+      await cleanupSandboxes();
+      // Retry once after cleanup
+      res = await fetch(`${API}/sandboxes`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          name: `${name}-retry`,
+          network: { allow_internet_access: true },
+          timeout_secs: 3600,
+          wait: true,
+        }),
+      });
+      if (!res.ok) {
+        const retryText = await res.text().catch(() => "");
+        throw new Error(`TensorLake create failed after quota cleanup (${res.status}): ${retryText.slice(0, 300)}`);
+      }
+    } else {
+      throw new Error(`TensorLake create failed (${res.status}): ${text.slice(0, 300)}`);
+    }
   }
   const data = (await res.json()) as { sandbox_id?: string; id?: string };
   const id = data.sandbox_id ?? data.id;

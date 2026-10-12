@@ -13,6 +13,8 @@ import {
 } from "../tools/registry";
 import { registerSandboxFileTools } from "../tools/sandbox-files";
 import { registerSandboxExecTools } from "../tools/sandbox-exec";
+import { registerGithubTools } from "../tools/github";
+import { registerWebTools } from "../tools/web";
 import type { SubAgent } from "@/types/orbit-types";
 
 const MAX_STEPS = 12;
@@ -27,6 +29,18 @@ const SUB_AGENT_TOOLS = [
   "sandbox_exec",
   "track_tasks",
   "finish_task",
+  // Read-only outside-sandbox tools.
+  "github_read",
+  "ci_status",
+  "self_diff",
+  "web_search",
+  "fetch_url",
+  // Autonomous GitHub writes: sub-agents decide independently, no approval
+  // queue. NEVER offered: merges or destructive ops (user-gated).
+  "github_comment",
+  "submit_pr_review",
+  "create_issue",
+  "create_pr",
 ];
 
 let toolsRegistered = false;
@@ -34,6 +48,8 @@ function ensureSubAgentTools(): void {
   if (toolsRegistered) return;
   registerSandboxFileTools();
   registerSandboxExecTools();
+  registerGithubTools();
+  registerWebTools();
   toolsRegistered = true;
 }
 
@@ -82,7 +98,7 @@ async function fail(
   }
   await traceSpan(traceId, { name: "failed", detail: message });
   await supabase.from("activities").insert([
-    { title: `Agent failed: ${agent.title}`, description: message, type: "event" },
+    { user_id: agent.user_id, title: `Agent failed: ${agent.title}`, description: message, type: "event" },
   ]);
 }
 
@@ -191,12 +207,16 @@ export async function runSubAgent(
       sandboxId: sandbox.id,
       workdir,
       agentId,
+      // Server-side only: powers the read-only github_read / ci_status
+      // tools. Never enters tool outputs; the sandbox remote stays anonymous
+      // and exec-level GitHub writes stay deny-listed.
+      githubToken: token,
     };
     const toolCalls: { name: string; at: number }[] = [];
     const messages: Anthropic.MessageParam[] = [
       {
         role: "user",
-        content: `Repository is checked out and you are on branch ${branch}. The repo root is your working directory. Do the task now. Use read_file/glob/grep to explore, write_file/edit_file to change code, sandbox_exec for tests/builds/git. Keep a plan with track_tasks. When done, call finish_task with your summary.`,
+        content: `Repository is checked out and you are on branch ${branch}. The repo root is your working directory. Do the task now. Use read_file/glob/grep to explore, write_file/edit_file to change code, sandbox_exec for tests/builds/git. Use github_read to re-read your issue/PR (comments, reviews) when you need fresh context, ci_status to confirm your branch is green before finishing, and self_diff to review your own changes. Use web_search/fetch_url when you need outside docs or error lookups. You are autonomous: comment with github_comment, file follow-ups with create_issue, and open your PR with create_pr when the work is done — never merge. Keep a plan with track_tasks. When done, call finish_task with your summary.`,
       },
     ];
     let summary = "";
@@ -255,6 +275,18 @@ export async function runSubAgent(
         if (use.type !== "tool_use") continue;
         const input = (use.input ?? {}) as Record<string, string>;
         toolCalls.push({ name: use.name, at: Date.now() });
+        // Allowlist: the model only gets SUB_AGENT_TOOLS. Anything else
+        // (e.g. orchestrator-only or write tools) is refused, so a
+        // compromised or confused model can't reach beyond its sandbox role.
+        if (!SUB_AGENT_TOOLS.includes(use.name)) {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: use.id,
+            content: `Tool ${use.name} is not available to sub-agents. Use your assigned tools.`,
+            is_error: true,
+          });
+          continue;
+        }
         const started = Date.now();
         const result = await runTool(use.name, input, toolCtx);
         const latencyMs = Date.now() - started;
@@ -332,9 +364,28 @@ export async function runSubAgent(
     if (isEmpty) {
       await writeResult(supabase, agentId, { repo: repoFull, branch });
       await linkIssueResult(supabase, agent);
+
+      if (agent.kind === "review") {
+        await traceSpan(traceId, { name: "review_completed", detail: summary.slice(0, 300) });
+        await supabase.from("activities").insert([
+          {
+            user_id: userId,
+            title: `Review finished: ${agent.title}`,
+            description: `PR review completed on GitHub. ${summary.slice(0, 200)}`,
+            type: "pr",
+          },
+        ]);
+        await finishCompleted(supabase, userId, agent, traceId, summary, {
+          runLog: runLogText,
+          evalCtx: { testsPassed, repo: repoFull, branch, base, token },
+        });
+        return;
+      }
+
       await traceSpan(traceId, { name: "no_changes", detail: `branch ${branch} matches ${base}; nothing to publish` });
       await supabase.from("activities").insert([
         {
+          user_id: userId,
           title: `No changes needed: ${agent.title}`,
           description: `The work was already done on ${base}. Branch ${branch} left empty; no PR opened.`,
           type: "event",
@@ -425,6 +476,7 @@ export async function runSubAgent(
       await traceSpan(traceId, { name: "awaiting_publish_approval", detail: branch });
       await supabase.from("activities").insert([
         {
+          user_id: userId,
           title: `Work ready for review: ${agent.title}`,
           description: `Branch ${branch} is pushed. Approve to open a PR${testsPassed ? " (tests passed)" : ""}.`,
           type: "pr",
@@ -439,8 +491,7 @@ export async function runSubAgent(
   } catch (err) {
     await fail(supabase, agent, traceId, `Run error: ${(err as Error).message.slice(0, 500)}`, sandbox);
   } finally {
-    // In manual mode the sandbox is kept for publish; auto mode destroys it.
-    if (settings.orchestrator_auto_approve) {
+    if (sandbox) {
       await destroySandbox(sandbox);
     }
   }
@@ -524,6 +575,7 @@ async function finishCompleted(
   });
   await supabase.from("activities").insert([
     {
+      user_id: userId,
       title: `Done: ${agent.title}`,
       description:
         opts.prNumber != null

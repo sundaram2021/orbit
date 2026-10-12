@@ -42,7 +42,7 @@ export function DashboardHeader({ user, activeNav, onToggleSidebar }: DashboardH
   }, []);
 
   useEffect(() => {
-    // Intentional: fetch notifications on mount, then poll + refresh events.
+    // Fetch notifications on mount, then poll + refresh events.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
     const t = setInterval(load, 20000);

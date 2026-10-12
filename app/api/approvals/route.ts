@@ -3,7 +3,7 @@ import { Octokit } from "@octokit/rest";
 import { createOrbitServerClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-service";
 import { runSubAgent, writeResult } from "@/lib/sandbox/run";
-import { evaluateAgent, applyPatches } from "@/lib/eval/evaluate";
+import { evaluateAgent } from "@/lib/eval/evaluate";
 import { destroySandbox } from "@/lib/sandbox/tensorlake";
 import { traceSpan } from "@/lib/traces";
 import { memoryRemember } from "@/lib/memory";
@@ -87,13 +87,9 @@ async function handleReject(
       }
     } catch { /* ref may be a plain id */ }
   }
-  if (approval.kind === "prompt_update" || approval.kind === "skill_update") {
-    await svc.from("evaluations").update({ status: "dismissed" }).eq("id", approval.ref_id);
-  }
   await svc.from("activities").insert([
-    { title: "Approval rejected", description: `${approval.kind} was rejected.`, type: "event" },
+    { user_id: userId, title: "Approval rejected", description: `${approval.kind} was rejected.`, type: "event" },
   ]);
-  void userId;
 }
 
 export async function handleApprove(
@@ -129,14 +125,19 @@ export async function handleApprove(
       };
       const octokit = new Octokit({ auth: token });
       const [o, r] = ref.repo.split("/");
-      const pr = await octokit.pulls.create({
-        owner: o,
-        repo: r,
-        title: `Orbit: ${ref.summary.split("\n")[0]}`.slice(0, 120),
-        head: ref.branch,
-        base: ref.base,
-        body: `${ref.summary}\n\n---\n*Opened by Orbit orchestrator*`,
-      });
+      // Adopt: the sub-agent may already have opened a PR on this branch
+      // itself (create_pr tool) — never open a duplicate.
+      const existing = await octokit.pulls.list({ owner: o, repo: r, state: "open", head: `${o}:${ref.branch}` });
+      const pr = existing.data[0]
+        ? { data: existing.data[0] }
+        : await octokit.pulls.create({
+          owner: o,
+          repo: r,
+          title: `Orbit: ${ref.summary.split("\n")[0]}`.slice(0, 120),
+          head: ref.branch,
+          base: ref.base,
+          body: `${ref.summary}\n\n---\n*Opened by Orbit orchestrator*`,
+        });
       const { data: agent } = await svc.from("sub_agents").select("*").eq("id", ref.agentId).single();
       const traceId = ((agent as { trace_id?: string } | null)?.trace_id ?? ref.agentId) as string;
       await traceSpan(traceId, { name: "pr_opened", detail: `#${pr.data.number}` });
@@ -163,7 +164,7 @@ export async function handleApprove(
         agent_id: ref.agentId,
       });
       await svc.from("activities").insert([
-        { title: `PR opened: #${pr.data.number}`, description: "Approve the merge to finish.", type: "pr" },
+        { user_id: userId, title: `PR opened: #${pr.data.number}`, description: "Approve the merge to finish.", type: "pr" },
       ]);
       void evaluateAgent(
         svc,
@@ -192,7 +193,7 @@ export async function handleApprove(
       await traceSpan(traceId, { name: "merged", detail: `#${ref.prNumber} squash-merged` });
       if (ref.sandboxId) await destroySandbox({ id: ref.sandboxId, mock: false });
       await svc.from("activities").insert([
-        { title: `PR merged: #${ref.prNumber}`, description: "Work is live.", type: "pr" },
+        { user_id: userId, title: `PR merged: #${ref.prNumber}`, description: "Work is live.", type: "pr" },
       ]);
       break;
     }
@@ -208,35 +209,8 @@ export async function handleApprove(
         body: ref.body,
       });
       await svc.from("activities").insert([
-        { title: `Comment posted on ${ref.repo}#${ref.number}`, description: "Posted by the orchestrator.", type: "event" },
+        { user_id: userId, title: `Comment posted on ${ref.repo}#${ref.number}`, description: "Posted by the orchestrator.", type: "event" },
       ]);
-      break;
-    }
-    case "prompt_update":
-    case "skill_update": {
-      const { data: evaluation } = await svc.from("evaluations").select("*").eq("id", approval.ref_id).single();
-      const evaluationRow = evaluation as {
-        sub_agent_id: string;
-        prompt_patch?: string | null;
-        skills_patch?: string[] | null;
-      } | null;
-      if (evaluationRow) {
-        const { data: agent } = await svc
-          .from("sub_agents")
-          .select("*")
-          .eq("id", evaluationRow.sub_agent_id)
-          .single();
-        if (agent) {
-          await applyPatches(svc, agent, {
-            prompt_patch: approval.kind === "prompt_update" ? evaluationRow.prompt_patch : null,
-            skills_patch: approval.kind === "skill_update" ? evaluationRow.skills_patch : null,
-          });
-        }
-        await svc.from("evaluations").update({ status: "applied" }).eq("id", approval.ref_id);
-        await svc.from("activities").insert([
-          { title: "Evaluator tuning applied", description: `${approval.kind} applied from evaluation.`, type: "brain" },
-        ]);
-      }
       break;
     }
   }

@@ -2,6 +2,7 @@ import { registerSandboxFileTools } from "./sandbox-files";
 import { registerSandboxExecTools } from "./sandbox-exec";
 import { registerGithubTools } from "./github";
 import { registerOrchestratorTools } from "./orchestrator-tools";
+import { registerWebTools } from "./web";
 
 /** Register every Orbit tool exactly once per process (idempotent). */
 export function ensureAllTools(): void {
@@ -9,4 +10,5 @@ export function ensureAllTools(): void {
   registerSandboxExecTools();
   registerGithubTools();
   registerOrchestratorTools();
+  registerWebTools();
 }

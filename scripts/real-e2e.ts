@@ -89,9 +89,9 @@ async function main() {
     const { agentId, autoStarted } = await proposeFromEvent(svc, ev as never);
     record("propose", autoStarted ? "PASS" : "FAIL", `agent ${agentId} autoStarted=${autoStarted}`);
 
-    const { data: agentRow } = await svc.from("sub_agents").select("system_prompt,skills,skill_definitions").eq("id", agentId).single();
-    const ar = agentRow as { system_prompt: string; skills: string[]; skill_definitions: { name: string }[] } | null;
-    record("prompt+skills", ar && ar.system_prompt.includes(REPO) ? "PASS" : "FAIL", `skills=${(ar?.skills ?? []).join(",") || "none"}`);
+    const { data: agentRow } = await svc.from("sub_agents").select("system_prompt").eq("id", agentId).single();
+    const ar = agentRow as { system_prompt: string } | null;
+    record("customized-prompt", ar && ar.system_prompt.includes(REPO) ? "PASS" : "FAIL", `prompt=${ar?.system_prompt.length ?? 0} chars`);
 
     let st = "";
     for (let i = 0; i < 60 && st !== "completed" && st !== "failed"; i++) {

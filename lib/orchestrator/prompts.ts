@@ -1,18 +1,31 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Classification } from "./classify";
+import { buildSubAgentSystemPrompt, type TaskAttachmentContext } from "./subagent-prompt";
+
+export type { TaskAttachmentContext };
 
 /**
  * Orchestrator step 2: build the custom system prompt for a sub-agent.
  * Starts from the stored template (which the evaluator improves over time),
- * then injects the task, plan, memory digest, and skills.
+ * then composes the detailed autonomous-executor prompt around it.
+ *
+ * Every task gets a detailed customized prompt carrying all task context.
+ * There are no skills — the customized prompt IS the customization.
  */
 export async function buildSystemPrompt(
   supabase: SupabaseClient,
   classification: Classification,
   opts: {
     memoryDigest?: string;
-    skillDefinitions?: string[];
     eventContext?: string;
+    /** User's direct instruction typed in the new-task composer. */
+    userInstruction?: string;
+    /** Attached issue/PR/file bodies (already fetched server-side). */
+    attachmentContexts?: TaskAttachmentContext[];
+    /** Attached issue number, if any (for branch naming / trace). */
+    issueNumber?: number | null;
+    /** Attached PR number, if any. */
+    prNumber?: number | null;
   }
 ): Promise<string> {
   let template = "";
@@ -31,27 +44,14 @@ export async function buildSystemPrompt(
       "You are a sub-agent in the Orbit factory. Complete the assigned GitHub task carefully with minimal, tested changes.";
   }
 
-  const skills =
-    opts.skillDefinitions && opts.skillDefinitions.length > 0
-      ? opts.skillDefinitions.map((s) => `- ${s}`).join("\n")
-      : "- (no special skills assigned — follow repo conventions and the rules below.)";
-
-  return `${template}
-
-## Assigned task
-Title: ${classification.title}
-Repo: ${classification.repo}
-Plan: ${classification.plan}
-Risk: ${classification.risk}
-${opts.eventContext ? `\n## GitHub context\n${opts.eventContext.slice(0, 4000)}` : ""}
-${opts.memoryDigest ? `\n## Shared memory (from past work)\n${opts.memoryDigest.slice(0, 3000)}` : ""}
-
-## Skills for this task
-${skills}
-
-## Rules
-- Work inside the provided sandbox checkout only.
-- Create a feature branch named orbit/<short-task-slug>; never commit to the default branch.
-- Run relevant tests before finishing and report results.
-- End by summarizing: files changed, tests run, and the PR or comment to publish.`;
+  return buildSubAgentSystemPrompt({
+    template,
+    classification,
+    memoryDigest: opts.memoryDigest,
+    eventContext: opts.eventContext,
+    userInstruction: opts.userInstruction,
+    attachmentContexts: opts.attachmentContexts,
+    issueNumber: opts.issueNumber,
+    prNumber: opts.prNumber,
+  });
 }
