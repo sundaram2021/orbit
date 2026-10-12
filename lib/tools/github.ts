@@ -498,7 +498,8 @@ export function registerGithubTools(): void {
 
   registerTool({
     name: "close_issue",
-    description: "Close an open GitHub issue. Optionally specify reason ('completed' or 'not_planned') and a closing comment.",
+    description:
+      "Close an open GitHub issue when the user asks to close it. Supports closing reason ('completed' | 'not_planned') and an optional closing comment. From orchestrator chat this is queued for user approval first; sub-agents close directly.",
     input_schema: {
       type: "object",
       properties: {
@@ -511,45 +512,30 @@ export function registerGithubTools(): void {
     },
     permission: "auto",
     handler: async (input, ctx) => {
-      const repo = (input.repo ?? "").trim();
-      const [o, r] = parseRepo(repo);
       const num = Number(input.issue_number);
       if (!Number.isFinite(num)) return { ok: false, output: `Bad issue number: ${input.issue_number}` };
-      const gh = octo(ctx);
-      try {
-        if (input.comment) {
-          await gh.issues.createComment({ owner: o, repo: r, issue_number: num, body: input.comment }).catch(() => {});
-        }
-        const stateReason = input.reason === "not_planned" ? "not_planned" : "completed";
-        await gh.issues.update({
-          owner: o,
-          repo: r,
-          issue_number: num,
-          state: "closed",
-          state_reason: stateReason,
-        });
-
-        try {
-          await ctx.supabase.from("activities").insert([
-            {
-              user_id: ctx.userId,
-              title: `Issue closed: ${repo}#${num}`,
-              description: `Closed as ${stateReason}${input.comment ? `: "${input.comment.slice(0, 100)}"` : ""}`,
-              type: "issue",
-            },
-          ]);
-        } catch { /* non-fatal */ }
-
-        return { ok: true, output: `Issue #${num} in ${repo} closed successfully (${stateReason}).` };
-      } catch (err) {
-        return { ok: false, output: `Close issue failed: ${(err as Error).message.slice(0, 300)}` };
+      if (!(input.repo ?? "").includes("/")) return { ok: false, output: "Provide repo as owner/name." };
+      // Orchestrator path: destructive — queue for user approval, never close silently.
+      if (!ctx.agentId) {
+        return { ok: true, output: "Queued for approval.", needsApproval: "close_issue" };
       }
+      // Sub-agent path: autonomous — close immediately.
+      return executeCloseIssue({
+        supabase: ctx.supabase,
+        userId: ctx.userId,
+        githubToken: ctx.githubToken ?? null,
+        repo: (input.repo ?? "").trim(),
+        issueNumber: num,
+        reason: (input.reason ?? "completed").trim(),
+        comment: (input.comment ?? "").trim(),
+      });
     },
   });
 
   registerTool({
     name: "close_pr",
-    description: "Close an open GitHub pull request without merging. Optionally specify a closing comment.",
+    description:
+      "Close an open GitHub pull request without merging when the user asks to close it. Optionally posts a closing comment first. From orchestrator chat this is queued for user approval first; sub-agents close directly.",
     input_schema: {
       type: "object",
       properties: {
@@ -561,32 +547,22 @@ export function registerGithubTools(): void {
     },
     permission: "auto",
     handler: async (input, ctx) => {
-      const repo = (input.repo ?? "").trim();
-      const [o, r] = parseRepo(repo);
       const num = Number(input.pr_number);
       if (!Number.isFinite(num)) return { ok: false, output: `Bad PR number: ${input.pr_number}` };
-      const gh = octo(ctx);
-      try {
-        if (input.comment) {
-          await gh.issues.createComment({ owner: o, repo: r, issue_number: num, body: input.comment }).catch(() => {});
-        }
-        await gh.pulls.update({ owner: o, repo: r, pull_number: num, state: "closed" });
-
-        try {
-          await ctx.supabase.from("activities").insert([
-            {
-              user_id: ctx.userId,
-              title: `PR closed: ${repo}#${num}`,
-              description: `Closed without merge${input.comment ? `: "${input.comment.slice(0, 100)}"` : ""}`,
-              type: "pr",
-            },
-          ]);
-        } catch { /* non-fatal */ }
-
-        return { ok: true, output: `Pull request #${num} in ${repo} closed successfully.` };
-      } catch (err) {
-        return { ok: false, output: `Close PR failed: ${(err as Error).message.slice(0, 300)}` };
+      if (!(input.repo ?? "").includes("/")) return { ok: false, output: "Provide repo as owner/name." };
+      // Orchestrator path: destructive — queue for user approval, never close silently.
+      if (!ctx.agentId) {
+        return { ok: true, output: "Queued for approval.", needsApproval: "close_pr" };
       }
+      // Sub-agent path: autonomous — close immediately.
+      return executeClosePR({
+        supabase: ctx.supabase,
+        userId: ctx.userId,
+        githubToken: ctx.githubToken ?? null,
+        repo: (input.repo ?? "").trim(),
+        prNumber: num,
+        comment: (input.comment ?? "").trim(),
+      });
     },
   });
 
@@ -674,4 +650,82 @@ export function registerGithubTools(): void {
       }
     },
   });
+}
+
+export interface CloseIssueParams {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any;
+  userId: string;
+  githubToken: string | null | undefined;
+  repo: string;
+  issueNumber: number;
+  reason?: string;
+  comment?: string;
+}
+
+export interface ClosePRParams {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any;
+  userId: string;
+  githubToken: string | null | undefined;
+  repo: string;
+  prNumber: number;
+  comment?: string;
+}
+
+/** Shared executor: close an issue (used by the tool handler AND the approval pipeline). */
+export async function executeCloseIssue(params: CloseIssueParams): Promise<{ ok: boolean; output: string }> {
+  const { supabase, userId, githubToken, repo, issueNumber } = params;
+  if (!githubToken) return { ok: false, output: "GitHub is not connected for this user." };
+  try {
+    const [o, r] = parseRepo(repo.trim());
+    const gh = new Octokit({ auth: githubToken });
+    const comment = (params.comment ?? "").trim();
+    if (comment) {
+      await gh.issues.createComment({ owner: o, repo: r, issue_number: issueNumber, body: comment }).catch(() => {});
+    }
+    const stateReason = params.reason === "not_planned" ? "not_planned" : "completed";
+    await gh.issues.update({ owner: o, repo: r, issue_number: issueNumber, state: "closed", state_reason: stateReason });
+    try {
+      await supabase.from("activities").insert([
+        {
+          user_id: userId,
+          title: `Issue closed: ${repo}#${issueNumber}`,
+          description: `Closed as ${stateReason}${comment ? `: "${comment.slice(0, 100)}"` : ""}`,
+          type: "issue",
+        },
+      ]);
+    } catch { /* non-fatal */ }
+    return { ok: true, output: `Issue #${issueNumber} in ${repo} closed successfully (${stateReason}).` };
+  } catch (err) {
+    return { ok: false, output: `Close issue failed: ${(err as Error).message.slice(0, 300)}` };
+  }
+}
+
+/** Shared executor: close a PR without merging (used by the tool handler AND the approval pipeline). */
+export async function executeClosePR(params: ClosePRParams): Promise<{ ok: boolean; output: string }> {
+  const { supabase, userId, githubToken, repo, prNumber } = params;
+  if (!githubToken) return { ok: false, output: "GitHub is not connected for this user." };
+  try {
+    const [o, r] = parseRepo(repo.trim());
+    const gh = new Octokit({ auth: githubToken });
+    const comment = (params.comment ?? "").trim();
+    if (comment) {
+      await gh.issues.createComment({ owner: o, repo: r, issue_number: prNumber, body: comment }).catch(() => {});
+    }
+    await gh.pulls.update({ owner: o, repo: r, pull_number: prNumber, state: "closed" });
+    try {
+      await supabase.from("activities").insert([
+        {
+          user_id: userId,
+          title: `PR closed: ${repo}#${prNumber}`,
+          description: `Closed without merge${comment ? `: "${comment.slice(0, 100)}"` : ""}`,
+          type: "pr",
+        },
+      ]);
+    } catch { /* non-fatal */ }
+    return { ok: true, output: `Pull request #${prNumber} in ${repo} closed successfully.` };
+  } catch (err) {
+    return { ok: false, output: `Close PR failed: ${(err as Error).message.slice(0, 300)}` };
+  }
 }

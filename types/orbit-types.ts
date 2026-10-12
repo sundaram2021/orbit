@@ -115,7 +115,9 @@ export type ApprovalKind =
   | "run_agent"
   | "publish_pr"
   | "merge"
-  | "github_comment";
+  | "github_comment"
+  | "close_issue"
+  | "close_pr";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 

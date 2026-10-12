@@ -271,6 +271,7 @@ export async function POST(request: Request) {
       const encoder = new TextEncoder();
       const send = (obj: object) => controller.enqueue(encoder.encode(sseEncode(obj)));
       let fullText = "";
+      const executedSteps: Array<{ tool: string; label: string; status: "done" | "error" }> = [];
 
       try {
         const anthropic: Anthropic = getAnthropicClient();
@@ -392,8 +393,6 @@ export async function POST(request: Request) {
           }
         }
 
-        const executedSteps: Array<{ tool: string; label: string; status: "done" | "error" }> = [];
-
         for (let round = 0; round < 5; round++) {
           send({
             type: "status",
@@ -507,19 +506,25 @@ export async function POST(request: Request) {
             // Registry tools (close_issue, close_pr, list_issues, list_prs, github_read, etc.)
             const out = await runTool(use.name, input as Record<string, string>, toolCtx);
             let content = out.output;
-            if (out.needsApproval === "github_comment") {
-              const commInput = input as { repo?: string; number?: string; body?: string };
-              await svc
-                .from("approvals")
-                .insert([
-                  {
-                    user_id: userId,
-                    kind: "github_comment",
-                    ref_id: JSON.stringify({ repo: commInput.repo, number: commInput.number, body: commInput.body }),
-                    status: "pending",
-                  },
-                ]);
-              content = "Comment queued for user approval — it will post once approved.";
+            if (out.needsApproval) {
+              const kind = out.needsApproval;
+              await svc.from("approvals").insert([
+                {
+                  user_id: userId,
+                  kind,
+                  ref_id: JSON.stringify(input),
+                  status: "pending",
+                },
+              ]);
+              const queuedLabel =
+                kind === "github_comment"
+                  ? "Comment queued for user approval — it will post once approved."
+                  : kind === "close_issue"
+                    ? `Close of issue #${(input as Record<string, string>).issue_number ?? ""} queued for your approval — approve it in the chat to close on GitHub.`
+                    : kind === "close_pr"
+                      ? `Close of PR #${(input as Record<string, string>).pr_number ?? ""} queued for your approval — approve it in the chat to close on GitHub.`
+                      : `${kind} queued for your approval.`;
+              content = queuedLabel;
             }
 
             executedSteps.push({ tool: use.name, label, status: out.ok ? "done" : "error" });
@@ -545,7 +550,14 @@ export async function POST(request: Request) {
       }
 
       if (fullText) {
-        await supabase.from("chat_messages").insert([{ thread_id: threadId, role: "assistant", content: fullText }]);
+        try {
+          await supabase
+            .from("chat_messages")
+            .insert([{ thread_id: threadId, role: "assistant", content: fullText, steps: executedSteps }]);
+        } catch {
+          // Older DBs without the steps column — fall back to content-only.
+          await supabase.from("chat_messages").insert([{ thread_id: threadId, role: "assistant", content: fullText }]);
+        }
         void memoryRemember(userId, `Orchestrator chat: user asked "${userStoredContent.slice(0, 200)}", assistant replied "${fullText.slice(0, 300)}".`);
       }
       send({ done: true, steps: executedSteps });
@@ -571,11 +583,24 @@ export async function GET(request: Request) {
     user.id,
     new URL(request.url).searchParams.get("thread_id") ?? undefined
   );
-  const { data } = await supabase
+  // Steps column is new (20261013 migration) — fall back gracefully on older DBs.
+  let rows: { id: string; thread_id?: string; role: string; content: string; created_at?: string; steps?: { tool: string; label: string; status: "done" | "error" }[] }[] = [];
+  const withSteps = await supabase
     .from("chat_messages")
-    .select("id, role, content, created_at")
+    .select("id, role, content, created_at, steps")
     .eq("thread_id", threadId)
     .order("created_at", { ascending: true })
     .limit(100);
-  return NextResponse.json({ messages: data ?? [] });
+  if (withSteps.error) {
+    const legacy = await supabase
+      .from("chat_messages")
+      .select("id, role, content, created_at")
+      .eq("thread_id", threadId)
+      .order("created_at", { ascending: true })
+      .limit(100);
+    rows = ((legacy.data ?? []) as typeof rows);
+  } else {
+    rows = ((withSteps.data ?? []) as typeof rows);
+  }
+  return NextResponse.json({ messages: rows });
 }

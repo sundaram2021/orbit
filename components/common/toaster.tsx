@@ -43,11 +43,19 @@ export function Toaster() {
               const approvalTitle =
                 a.kind === "run_agent"
                   ? "Agent Approval Required"
-                  : `Approval needed: ${a.kind.replace(/_/g, " ")}`;
+                  : a.kind === "close_issue"
+                    ? "Approve: close issue"
+                    : a.kind === "close_pr"
+                      ? "Approve: close PR"
+                      : a.kind === "github_comment"
+                        ? "Approve: post comment"
+                        : `Approval needed: ${a.kind.replace(/_/g, " ")}`;
               const approvalBody =
                 a.kind === "run_agent"
                   ? "An agent is ready to run. Approve it in the chat bar."
-                  : "Review it in the notifications bell.";
+                  : a.kind === "close_issue" || a.kind === "close_pr"
+                    ? "Destructive GitHub action — review it in the chat."
+                    : "Review it in the notifications bell.";
               fresh.push({
                 id,
                 title: approvalTitle,

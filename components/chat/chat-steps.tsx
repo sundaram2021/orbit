@@ -9,99 +9,152 @@ import {
   Loader2,
   AlertCircle,
   CircleDot,
+  CircleX,
   GitPullRequest,
   Cpu,
   MessageSquare,
   Sparkles,
+  Search,
+  Globe,
+  ListChecks,
+  Brain,
+  Activity,
+  FileSearch,
+  FolderGit2,
+  Radar,
 } from "lucide-react";
 import { ChatStep } from "@/types/orbit-types";
 
 interface ChatStepsProps {
   steps: ChatStep[];
   isLive?: boolean;
+  /** Current thinking / executing label streamed from the server. */
+  activeStep?: string | null;
+  /** Newest assistant message keeps the timeline open; older ones start collapsed. */
+  defaultOpen?: boolean;
 }
 
-function getStepIcon(tool: string) {
-  if (tool.includes("issue")) {
-    return <CircleDot className="size-3.5 text-amber-400" />;
-  }
-  if (tool.includes("pr")) {
-    return <GitPullRequest className="size-3.5 text-purple-400" />;
-  }
-  if (tool.includes("spawn") || tool.includes("agent")) {
-    return <Cpu className="size-3.5 text-blue-400" />;
-  }
-  if (tool.includes("comment")) {
-    return <MessageSquare className="size-3.5 text-sky-400" />;
-  }
-  return <Wrench className="size-3.5 text-primary" />;
+function toolMeta(tool: string): { icon: React.ReactNode; name: string } {
+  const t = tool.toLowerCase();
+  if (t.includes("spawn")) return { icon: <Cpu className="size-3.5" />, name: "Sub-agent" };
+  if (t === "close_issue") return { icon: <CircleX className="size-3.5" />, name: "Close issue" };
+  if (t === "close_pr") return { icon: <GitPullRequest className="size-3.5" />, name: "Close PR" };
+  if (t.includes("issue") && t.includes("list")) return { icon: <ListChecks className="size-3.5" />, name: "Issues" };
+  if (t.includes("pr") && (t.includes("list") || t === "list_prs")) return { icon: <ListChecks className="size-3.5" />, name: "PRs" };
+  if (t.includes("issue")) return { icon: <CircleDot className="size-3.5" />, name: "Issue" };
+  if (t.includes("pr") || t.includes("review")) return { icon: <GitPullRequest className="size-3.5" />, name: "PR" };
+  if (t.includes("comment")) return { icon: <MessageSquare className="size-3.5" />, name: "Comment" };
+  if (t.includes("code_search")) return { icon: <FileSearch className="size-3.5" />, name: "Code search" };
+  if (t.includes("repo_overview") || t.includes("repo")) return { icon: <FolderGit2 className="size-3.5" />, name: "Repo" };
+  if (t.includes("web") || t.includes("fetch") || t.includes("url")) return { icon: <Globe className="size-3.5" />, name: "Web" };
+  if (t.includes("memory")) return { icon: <Brain className="size-3.5" />, name: "Memory" };
+  if (t.includes("running") || t.includes("agent")) return { icon: <Radar className="size-3.5" />, name: "Agents" };
+  if (t.includes("search")) return { icon: <Search className="size-3.5" />, name: "Search" };
+  return { icon: <Wrench className="size-3.5" />, name: tool.replace(/_/g, " ") };
 }
 
-export function ChatSteps({ steps, isLive = false }: ChatStepsProps) {
-  const [isOpen, setIsOpen] = useState<boolean>(isLive);
+export function ChatSteps({ steps, isLive = false, activeStep = null, defaultOpen }: ChatStepsProps) {
+  const running = steps.filter((s) => s.status === "running");
+  const [expanded, setExpanded] = useState<boolean | null>(null);
+  // While streaming the timeline stays open so the user sees live activity;
+  // otherwise the newest message starts open and older ones start collapsed.
+  const isOpen = isLive ? true : (expanded ?? defaultOpen ?? steps.length <= 4);
 
-  if (!steps || steps.length === 0) return null;
+  if ((!steps || steps.length === 0) && !activeStep) return null;
 
-  const runningCount = steps.filter((s) => s.status === "running").length;
   const doneCount = steps.filter((s) => s.status === "done").length;
+  const errorCount = steps.filter((s) => s.status === "error").length;
 
   return (
-    <div className="chat-steps-container">
+    <div className={`orbit-timeline ${isLive ? "orbit-timeline-live" : ""}`} aria-label="Agent activity">
       <button
         type="button"
-        onClick={() => setIsOpen((v) => !v)}
-        className="chat-steps-header"
+        onClick={() => setExpanded(!isOpen)}
+        className="orbit-timeline-head"
         aria-expanded={isOpen}
       >
-        <div className="chat-steps-header-left">
-          {runningCount > 0 ? (
-            <span className="chat-steps-live-indicator">
-              <Loader2 className="size-3 animate-spin text-primary" />
+        <span className="orbit-timeline-head-left">
+          {running.length > 0 || (isLive && activeStep) ? (
+            <span className="orbit-live-badge">
+              <span className="orbit-live-dot" />
+              Working
             </span>
           ) : (
-            <span className="chat-steps-done-indicator">
-              <Sparkles className="size-3 text-primary" />
+            <span className="orbit-done-badge">
+              <Sparkles className="size-3" />
+              Behind the scenes
             </span>
           )}
-          <span className="chat-steps-title">
-            {runningCount > 0
-              ? `Agent executing (${runningCount} active, ${doneCount} done)`
-              : `Thought process & actions (${steps.length} ${steps.length === 1 ? "step" : "steps"})`}
+          <span className="orbit-timeline-summary">
+            {running.length > 0
+              ? `${running.length} running · ${doneCount} done`
+              : errorCount > 0
+                ? `${steps.length} steps · ${errorCount} failed`
+                : `${steps.length} ${steps.length === 1 ? "step" : "steps"}`}
           </span>
-        </div>
-        <span className="chat-steps-toggle">
+        </span>
+        <span className="orbit-timeline-chevron">
           {isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
         </span>
       </button>
 
       {isOpen && (
-        <div className="chat-steps-timeline">
-          {steps.map((step, idx) => (
-            <div key={`${step.tool}-${idx}`} className={`chat-step-item chat-step-${step.status}`}>
-              <div className="chat-step-icon-wrap">
-                {step.status === "running" ? (
-                  <Loader2 className="size-3.5 animate-spin text-primary" />
-                ) : step.status === "error" ? (
-                  <AlertCircle className="size-3.5 text-destructive" />
-                ) : (
-                  <CheckCircle2 className="size-3.5 text-emerald-400" />
-                )}
-              </div>
-              <div className="chat-step-content">
-                <div className="chat-step-meta">
-                  <span className="chat-step-tool-badge">
-                    {getStepIcon(step.tool)}
-                    <code>{step.tool}</code>
+        <ol className="orbit-timeline-list">
+          {steps.map((step, idx) => {
+            const meta = toolMeta(step.tool);
+            const isLast = idx === steps.length - 1 && !activeStep;
+            return (
+              <li
+                key={`${step.tool}-${idx}`}
+                className={`orbit-timeline-item orbit-timeline-${step.status} ${isLast ? "is-last" : ""}`}
+              >
+                <span className="orbit-rail" aria-hidden="true">
+                  <span className="orbit-rail-dot">
+                    {step.status === "running" ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : step.status === "error" ? (
+                      <AlertCircle className="size-3" />
+                    ) : (
+                      <CheckCircle2 className="size-3" />
+                    )}
                   </span>
-                  <span className={`chat-step-status-tag status-${step.status}`}>
-                    {step.status === "running" ? "running" : step.status === "done" ? "completed" : "error"}
-                  </span>
+                </span>
+                <div className="orbit-timeline-body">
+                  <div className="orbit-timeline-row">
+                    <span className="orbit-tool-chip">
+                      {meta.icon}
+                      {meta.name}
+                    </span>
+                    <code className="orbit-tool-code">{step.tool}</code>
+                    <span className={`orbit-status-pill status-${step.status}`}>
+                      {step.status === "running" ? "running" : step.status === "done" ? "done" : "error"}
+                    </span>
+                  </div>
+                  <p className="orbit-timeline-label">{step.label}</p>
                 </div>
-                <div className="chat-step-label">{step.label}</div>
+              </li>
+            );
+          })}
+          {isLive && activeStep && (
+            <li className="orbit-timeline-item orbit-timeline-running">
+              <span className="orbit-rail" aria-hidden="true">
+                <span className="orbit-rail-dot">
+                  <Loader2 className="size-3 animate-spin" />
+                </span>
+              </span>
+              <div className="orbit-timeline-body">
+                <div className="orbit-timeline-row">
+                  <span className="orbit-tool-chip">
+                    <Activity className="size-3.5" />
+                    Thinking
+                  </span>
+                  <span className="orbit-status-pill status-running">live</span>
+                </div>
+                <p className="orbit-timeline-label orbit-thinking-text">{activeStep}</p>
               </div>
-            </div>
-          ))}
-        </div>
+            </li>
+          )}
+        </ol>
       )}
     </div>
   );
@@ -109,15 +162,17 @@ export function ChatSteps({ steps, isLive = false }: ChatStepsProps) {
 
 export function ChatLiveIndicator({ activeStep }: { activeStep: string }) {
   if (!activeStep) return null;
-
   return (
-    <div className="chat-live-pulse-card">
-      <div className="chat-live-pulse-spinner">
-        <Loader2 className="size-4 animate-spin text-primary" />
-      </div>
-      <div className="chat-live-pulse-info">
-        <span className="chat-live-pulse-tag">Orchestrator working</span>
-        <span className="chat-live-pulse-text">{activeStep}</span>
+    <div className="orbit-thinking" role="status" aria-live="polite">
+      <span className="orbit-thinking-spinner">
+        <Loader2 className="size-4 animate-spin" />
+      </span>
+      <div className="orbit-thinking-body">
+        <span className="orbit-thinking-tag">
+          <span className="orbit-live-dot" />
+          Orchestrator working
+        </span>
+        <span className="orbit-thinking-text">{activeStep}</span>
       </div>
     </div>
   );
