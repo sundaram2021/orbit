@@ -250,18 +250,24 @@ export function useChat(kind: ChatKind) {
                 );
               } else if (payload.type === "step_done" && payload.tool) {
                 setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId
-                      ? {
-                          ...m,
-                          steps: (m.steps ?? []).map((s) =>
-                            s.tool === payload.tool && s.status === "running"
-                              ? { ...s, status: "done", label: payload.label ?? s.label }
-                              : s
-                          ),
-                        }
-                      : m
-                  )
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    const steps = [...(m.steps ?? [])];
+                    // Match the LAST running step with this tool (multiple
+                    // spawn_task calls share one tool name).
+                    for (let i = steps.length - 1; i >= 0; i--) {
+                      if (steps[i].tool === payload.tool && steps[i].status === "running") {
+                        const failed = (payload.label ?? "").toLowerCase().startsWith("fail");
+                        steps[i] = {
+                          ...steps[i],
+                          status: failed ? "error" : "done",
+                          label: payload.label ?? steps[i].label,
+                        };
+                        break;
+                      }
+                    }
+                    return { ...m, steps };
+                  })
                 );
               } else if (payload.delta) {
                 setActiveStep(null);
@@ -291,12 +297,16 @@ export function useChat(kind: ChatKind) {
           messages: ChatMessage[];
         };
         setMessages((prev) => {
-          const lastWithSteps = prev.find((m) => m.id === assistantId && m.steps && m.steps.length > 0);
+          const streamed = prev.find((m) => m.id === assistantId);
+          const streamedSteps = streamed?.steps ?? [];
           return (refreshed.messages ?? [])
             .filter((m) => !isNotice(m.content))
             .map((m, idx, arr) => {
-              if (idx === arr.length - 1 && m.role === "assistant" && lastWithSteps?.steps) {
-                return { ...m, steps: lastWithSteps.steps };
+              const isLast = idx === arr.length - 1 && m.role === "assistant";
+              // Prefer server-persisted steps (new steps column); fall back to
+              // the just-streamed timeline so the UI never goes blank.
+              if (isLast && (!m.steps || m.steps.length === 0) && streamedSteps.length > 0) {
+                return { ...m, steps: streamedSteps };
               }
               return m;
             });

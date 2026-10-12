@@ -213,5 +213,34 @@ export async function handleApprove(
       ]);
       break;
     }
+    case "close_issue": {
+      const { executeCloseIssue } = await import("@/lib/tools/github");
+      const ref = JSON.parse(approval.ref_id) as { repo: string; issue_number?: string | number; reason?: string; comment?: string };
+      const res = await executeCloseIssue({
+        supabase: svc,
+        userId,
+        githubToken: token,
+        repo: ref.repo,
+        issueNumber: Number(ref.issue_number),
+        reason: ref.reason,
+        comment: ref.comment,
+      });
+      if (!res.ok) throw new Error(res.output);
+      break;
+    }
+    case "close_pr": {
+      const { executeClosePR } = await import("@/lib/tools/github");
+      const ref = JSON.parse(approval.ref_id) as { repo: string; pr_number?: string | number; comment?: string };
+      const res = await executeClosePR({
+        supabase: svc,
+        userId,
+        githubToken: token,
+        repo: ref.repo,
+        prNumber: Number(ref.pr_number),
+        comment: ref.comment,
+      });
+      if (!res.ok) throw new Error(res.output);
+      break;
+    }
   }
 }

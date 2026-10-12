@@ -9,6 +9,8 @@ const KIND_LABELS: Record<ApprovalKind, string> = {
   publish_pr: "Open PR",
   merge: "Merge PR",
   github_comment: "Post comment",
+  close_issue: "Close issue",
+  close_pr: "Close PR",
 };
 
 function describeApproval(a: Approval): string {
@@ -19,6 +21,15 @@ function describeApproval(a: Approval): string {
     }
     if (a.kind === "merge" && typeof ref.prNumber !== "undefined") {
       return `Merge PR #${String(ref.prNumber)} in ${String(ref.repo ?? "")}.`;
+    }
+    if (a.kind === "close_issue") {
+      return `Close issue #${String(ref.issue_number ?? ref.number ?? "?")} in ${String(ref.repo ?? "")}${ref.reason ? ` as ${String(ref.reason)}` : ""}.`;
+    }
+    if (a.kind === "close_pr") {
+      return `Close PR #${String(ref.pr_number ?? ref.number ?? "?")} in ${String(ref.repo ?? "")} without merging.`;
+    }
+    if (a.kind === "github_comment" && typeof ref.body === "string") {
+      return `Post comment on ${String(ref.repo ?? "")}#${String(ref.number ?? "?")}: "${String(ref.body).slice(0, 120)}"`;
     }
   } catch {
     // ref_id is a plain id

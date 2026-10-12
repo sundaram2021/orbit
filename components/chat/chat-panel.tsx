@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   SendHorizontal,
   Square,
@@ -19,6 +19,7 @@ import {
   X,
   Image as ImageIcon,
   Sparkles,
+  Orbit,
 } from "lucide-react";
 import { UseChat, ChatAttachment } from "@/hooks/use-chat";
 import { ChatKind } from "@/types/orbit-types";
@@ -93,14 +94,44 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const repoBoxRef = useRef<HTMLDivElement>(null);
   const plusBoxRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const stickRef = useRef(true);
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "end" });
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
+
+  // Follow the conversation: snap on new messages, follow deltas while streaming.
+  useEffect(() => {
+    if (stickRef.current) scrollToBottom(isStreaming);
+  }, [messages, activeStep, isStreaming, scrollToBottom]);
+
+  // Keep the composer focused after sending.
+  useEffect(() => {
+    if (!isStreaming) inputRef.current?.focus();
+  }, [isStreaming]);
+
+  const autogrow = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(160, Math.max(44, el.scrollHeight))}px`;
+  }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+    autogrow();
+  }, [input, autogrow]);
 
   useEffect(() => {
     if (kind !== "orchestrator") return;
@@ -205,8 +236,8 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     }
   };
 
-  /** Paste screenshots / copied images straight into the input box. */
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  /** Paste screenshots / copied images straight into the composer. */
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
       f.type.startsWith("image/")
     );
@@ -219,18 +250,35 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  const needsRepo = kind === "orchestrator" && !activeRepo;
+
+  const doSend = useCallback(
+    (text: string) => {
+      if ((!text.trim() && attachments.length === 0) || isStreaming || needsRepo) return;
+      stickRef.current = true;
+      void send(text, { attachments });
+      setInput("");
+      setAttachments([]);
+      setPlusOpen(false);
+      setPickerTab(null);
+      requestAnimationFrame(() => scrollToBottom(false));
+    },
+    [attachments, isStreaming, needsRepo, send, scrollToBottom]
+  );
+
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!input.trim() && attachments.length === 0) || isStreaming || needsRepo) return;
-    void send(input, { attachments });
-    setInput("");
-    setAttachments([]);
-    setPlusOpen(false);
-    setPickerTab(null);
+    doSend(input);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      doSend(input);
+    }
   };
 
   const isLanding = messages.length === 0 && !isLoading;
-  const needsRepo = kind === "orchestrator" && !activeRepo;
   const hasRepo = kind === "orchestrator" && !!activeRepo;
 
   const filteredPicker = pickerQuery.trim()
@@ -242,20 +290,21 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     : pickerItems;
 
   const repoSelector = kind === "orchestrator" && (
-    <div className="repo-select" ref={repoBoxRef}>
+    <div className="orbit-repo" ref={repoBoxRef}>
       <button
         type="button"
         onClick={() => setRepoOpen((v) => !v)}
         aria-expanded={repoOpen}
         aria-label="Select repository"
         title={activeRepo || "Select a repository to work on"}
+        className={`orbit-repo-btn ${activeRepo ? "is-set" : "is-empty"}`}
       >
         <FolderGit2 className="size-4" />
         <span>{activeRepo || "Select repo"}</span>
-        <ChevronDown className="size-3.5" />
+        <ChevronDown className="size-3.5 orbit-repo-chev" />
       </button>
       {repoOpen && (
-        <div className="repo-dropdown">
+        <div className="orbit-repo-menu" role="listbox">
           {reposLoading && <div className="repo-empty">Loading repositories…</div>}
           {!reposLoading && repos.length === 0 && (
             <div className="repo-empty">No repositories found. Check GitHub connection.</div>
@@ -269,6 +318,8 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
             <button
               key={r.full_name}
               type="button"
+              role="option"
+              aria-selected={r.full_name === activeRepo}
               className={r.full_name === activeRepo ? "active" : ""}
               onClick={() => handleSelectRepo(r.full_name)}
             >
@@ -282,15 +333,15 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
   );
 
   const attachmentChips = attachments.length > 0 && (
-    <div className="composer-attachments">
+    <div className="orbit-files">
       {attachments.map((a, i) => (
-        <span key={`${a.type}-${a.number ?? a.name}-${i}`} className="composer-chip">
+        <span key={`${a.type}-${a.number ?? a.name}-${i}`} className="orbit-file">
           {a.type === "file" ? (
             <Upload className="size-3" />
           ) : a.type === "image" ? (
             a.dataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={a.dataUrl} alt={a.name ?? "attached image"} className="composer-chip-thumb" />
+              <img src={a.dataUrl} alt={a.name ?? "attached image"} className="orbit-file-thumb" />
             ) : (
               <ImageIcon className="size-3" />
             )
@@ -312,9 +363,9 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     </div>
   );
 
-  // "+" menu inside the input box: upload file always; issue/PR only when a repo is picked.
+  // "+" menu inside the composer: upload file always; issue/PR only when a repo is picked.
   const plusMenu = kind === "orchestrator" && (
-    <div className="composer-plus" ref={plusBoxRef}>
+    <div className="orbit-plus" ref={plusBoxRef}>
       <button
         type="button"
         onClick={() => {
@@ -324,12 +375,12 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
         aria-expanded={plusOpen}
         aria-label="Add attachment"
         title="Add file, issue, or PR"
-        className="composer-plus-btn"
+        className="orbit-plus-btn"
       >
         <Plus className="size-4" />
       </button>
       {plusOpen && (
-        <div className="composer-plus-menu" role="menu">
+        <div className="orbit-plus-menu" role="menu">
           {!pickerTab && (
             <>
               <button type="button" onClick={() => fileRef.current?.click()}>
@@ -443,15 +494,17 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
   );
 
   const composer = (
-    <div className="gpt-composer-wrap">
+    <div className="orbit-composer-zone">
       {attachmentChips}
-      <form className="gpt-composer gpt-composer-new" onSubmit={onSubmit}>
+      <form className="orbit-composer" onSubmit={onSubmit}>
         {plusMenu}
-        <input
+        <textarea
           id="orchestrator-chat-input"
-          type="text"
+          ref={inputRef}
+          rows={1}
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
           onPaste={handlePaste}
           placeholder={
             needsRepo
@@ -464,9 +517,8 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
           aria-label={`${title} message`}
           title={needsRepo ? "Select a repository first" : undefined}
         />
-        {repoSelector}
         {isStreaming ? (
-          <button type="button" onClick={stop} aria-label="Stop streaming" className="gpt-send">
+          <button type="button" onClick={stop} aria-label="Stop streaming" className="orbit-send is-stop">
             <Square className="size-4" />
           </button>
         ) : (
@@ -475,60 +527,83 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
             type="submit"
             disabled={(!input.trim() && attachments.length === 0) || needsRepo}
             aria-label="Send message"
-            className="gpt-send"
+            className="orbit-send"
           >
             <SendHorizontal className="size-4" />
           </button>
         )}
       </form>
+      <p className="orbit-hint">Enter to send · Shift+Enter for a new line · Orbit acts on your GitHub</p>
     </div>
   );
 
   if (isLanding) {
     return (
-      <section className="gpt-landing" aria-label={title}>
+      <section className="orbit-landing" aria-label={title}>
+        <div className="orbit-landing-status">
+          <span className="orbit-live-dot" />
+          {activeRepo ? `Working in ${activeRepo}` : "Orchestrator ready"}
+        </div>
         <h2>{greeting}</h2>
         {kind === "orchestrator" && !activeRepo && (
-          <p className="gpt-landing-hint">Pick a repository below, then describe the task.</p>
+          <p className="orbit-landing-sub">Pick a repository below, then describe the task.</p>
         )}
-        <div className="gpt-hero-box">
+        <div className="orbit-landing-box">
+          {kind === "orchestrator" && (
+            <div className="orbit-landing-repo">{repoSelector}</div>
+          )}
           {kind === "orchestrator" && <ApprovalCards />}
           {composer}
         </div>
-        <div className="chat-chips chat-chips-center">
+        <div className="orbit-suggestions">
           {suggestions.map((s) => (
-            <button key={s} type="button" onClick={() => setInput(s)}>
+            <button
+              key={s}
+              type="button"
+              onClick={() => doSend(s)}
+              disabled={needsRepo || isStreaming}
+              title={needsRepo ? "Select a repository first" : s}
+            >
+              <Sparkles className="size-3.5" />
               {s}
             </button>
           ))}
         </div>
-        {error && <div className="chat-error">{error}</div>}
+        {error && <div className="orbit-error">{error}</div>}
       </section>
     );
   }
 
-  return (
-    <section className="gpt-thread" aria-label={title}>
-      {isStreaming && (
-        <div className="gpt-thread-head">
-          <span className="chat-streaming-dot" title="streaming" />
-        </div>
-      )}
+  const lastAssistantIdx = messages.map((m) => m.role).lastIndexOf("assistant");
 
-      <div className="gpt-messages">
+  return (
+    <section className="orbit-thread" aria-label={title}>
+      <div className="orbit-thread-bar">
+        <span className="orbit-thread-repo">
+          <Orbit className="size-3.5" />
+          {activeRepo || title}
+        </span>
+        {isStreaming ? (
+          <span className="orbit-live-badge">
+            <span className="orbit-live-dot" />
+            {activeStep ? activeStep.slice(0, 72) : "Working…"}
+          </span>
+        ) : (
+          <span className="orbit-idle-badge">{messages.length} messages</span>
+        )}
+      </div>
+
+      <div className="orbit-scroll" ref={scrollRef} onScroll={handleScroll}>
         {isLoading && (
-          <div className="chat-loading">
+          <div className="orbit-loading">
             <Loader2 className="size-4 animate-spin" /> Loading conversation…
           </div>
         )}
-        {messages.map((m) => (
-          <div key={m.id} className={`chat-msg chat-msg-${m.role}`}>
-            <span className="chat-msg-icon">
-              {m.role === "user" ? <User className="size-4" /> : <Bot className="size-4" />}
-            </span>
-            <div className="chat-msg-body">
-              {m.role === "user" ? (
-                <div className="chat-user-lines">
+        {messages.map((m, mi) =>
+          m.role === "user" ? (
+            <div key={m.id} className="orbit-user-row">
+              <div className="orbit-user-bubble">
+                <div className="orbit-user-lines">
                   {m.content.split("\n").map((line, i) => {
                     const trimmed = line.trim();
                     if (
@@ -538,46 +613,73 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
                       trimmed.endsWith("]")
                     ) {
                       return (
-                        <div key={i} className="chat-user-attachment-chip">
-                          <span className="attachment-chip-dot" />
-                          <span>{trimmed.slice(1, -1)}</span>
-                        </div>
+                        <span key={i} className="orbit-ref-chip">
+                          <span className="orbit-ref-dot" />
+                          {trimmed.slice(1, -1)}
+                        </span>
                       );
                     }
-                    return <p key={i}>{line || "\u00A0"}</p>;
+                    return <p key={i}>{line || " "}</p>;
                   })}
                 </div>
-              ) : (
-                <div className="chat-assistant-container">
-                  {m.steps && m.steps.length > 0 && (
-                    <ChatSteps steps={m.steps} isLive={isStreaming} />
-                  )}
-                  {m.content ? (
-                    <div className="chat-markdown-body">{renderMarkdown(m.content)}</div>
-                  ) : isStreaming ? (
-                    <ChatLiveIndicator
-                      activeStep={activeStep || "Orchestrator is reasoning and analyzing repository..."}
-                    />
-                  ) : null}
-                  {isStreaming && activeStep && m.content && (
-                    <div className="chat-active-step-inline">
-                      <Loader2 className="size-3.5 animate-spin text-primary" />
-                      <span>{activeStep}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+              </div>
+              <span className="orbit-avatar orbit-avatar-user" aria-hidden="true">
+                <User className="size-4" />
+              </span>
             </div>
-          </div>
-        ))}
+          ) : (
+            <div key={m.id} className="orbit-ai-row">
+              <span className="orbit-avatar orbit-avatar-ai" aria-hidden="true">
+                <Bot className="size-4" />
+              </span>
+              <div className="orbit-ai-body">
+                <p className="orbit-ai-name">
+                  Orbit
+                  {isStreaming && mi === messages.length - 1 && (
+                    <span className="orbit-stream-dot" title="streaming" />
+                  )}
+                </p>
+                {(m.steps && m.steps.length > 0) || (isStreaming && mi === messages.length - 1) ? (
+                  <ChatSteps
+                    steps={m.steps ?? []}
+                    isLive={isStreaming && mi === messages.length - 1}
+                    activeStep={isStreaming && mi === messages.length - 1 ? activeStep : null}
+                    defaultOpen={isStreaming ? true : mi === lastAssistantIdx}
+                  />
+                ) : null}
+                {m.content ? (
+                  <div className="orbit-markdown">{renderMarkdown(m.content)}</div>
+                ) : isStreaming && mi === messages.length - 1 ? (
+                  <ChatLiveIndicator
+                    activeStep={activeStep || "Orchestrator is reasoning and analyzing repository..."}
+                  />
+                ) : null}
+                {isStreaming && mi === messages.length - 1 && activeStep && m.content && (
+                  <div className="orbit-now">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    <span>{activeStep}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        )}
         <div ref={bottomRef} />
       </div>
 
-      {error && <div className="chat-error">{error}</div>}
+      {error && <div className="orbit-error">{error}</div>}
 
-      <div className="gpt-bottom">
-        <p className="gpt-note">Orbit acts on your GitHub — approvals appear as notifications.</p>
+      <div className="orbit-bottom">
         {kind === "orchestrator" && <ApprovalCards />}
+        <div className="orbit-toolbar">
+          {repoSelector}
+          {isStreaming && activeStep && (
+            <span className="orbit-toolbar-live" title={activeStep}>
+              <Loader2 className="size-3 animate-spin" />
+              {activeStep.slice(0, 60)}
+            </span>
+          )}
+        </div>
         {composer}
       </div>
     </section>

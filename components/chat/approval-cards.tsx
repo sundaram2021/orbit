@@ -10,6 +10,18 @@ interface AgentInfo {
   kind: string;
 }
 
+function safeRef(refId: string): { repo: string; num: string; preview: string } {
+  try {
+    const ref = JSON.parse(refId) as Record<string, unknown>;
+    const repo = String(ref.repo ?? "");
+    const num = String(ref.issue_number ?? ref.pr_number ?? ref.number ?? "?");
+    const preview = String(ref.comment ?? ref.body ?? "").slice(0, 100);
+    return { repo, num, preview };
+  } catch {
+    return { repo: "", num: "?", preview: "" };
+  }
+}
+
 /**
  * Pending agent-run approvals, shown inside the orchestrator chat itself so
  * the user can approve/reject without opening the notifications bell.
@@ -30,7 +42,13 @@ export function ApprovalCards() {
         const data = (await aRes.json()) as { approvals: Approval[] };
         setApprovals(
           (data.approvals ?? []).filter(
-            (a) => a.kind === "run_agent" || a.kind === "publish_pr" || a.kind === "merge"
+            (a) =>
+              a.kind === "run_agent" ||
+              a.kind === "publish_pr" ||
+              a.kind === "merge" ||
+              a.kind === "close_issue" ||
+              a.kind === "close_pr" ||
+              a.kind === "github_comment"
           )
         );
       }
@@ -116,6 +134,21 @@ export function ApprovalCards() {
           cardTitle = "Pull Request ready to merge";
           cardSubtitle = "Tests verified. Approve to squash-merge PR.";
           actionLabel = "Approve & merge";
+        } else if (a.kind === "close_issue") {
+          const ref = safeRef(a.ref_id);
+          cardTitle = `Close issue #${ref.num} in ${ref.repo}`;
+          cardSubtitle = "Destructive action — approve to close on GitHub.";
+          actionLabel = "Approve & close issue";
+        } else if (a.kind === "close_pr") {
+          const ref = safeRef(a.ref_id);
+          cardTitle = `Close PR #${ref.num} in ${ref.repo}`;
+          cardSubtitle = "Closes without merging — approve to close on GitHub.";
+          actionLabel = "Approve & close PR";
+        } else if (a.kind === "github_comment") {
+          const ref = safeRef(a.ref_id);
+          cardTitle = `Post comment on ${ref.repo}#${ref.num}`;
+          cardSubtitle = ref.preview ? `"${ref.preview}"` : "Approve to post the comment.";
+          actionLabel = "Approve & comment";
         }
 
         return (
