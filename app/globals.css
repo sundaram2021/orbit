@@ -4280,9 +4280,8 @@ body {
   gap: 22px;
   padding: 8px 4px 24px;
   flex: 1;
-  overflow-y: auto;
-  max-height: calc(100vh - 300px);
   min-height: 200px;
+  overflow: visible;
 }
 
 .orbit-loading {
@@ -4982,6 +4981,139 @@ body {
   font-size: 12px;
   border-radius: 10px;
   padding: 9px 13px;
+}
+
+/* Rich AI-response formatting */
+.orbit-markdown .md-h1 {
+  font-size: 17px;
+}
+
+.orbit-markdown .md-h2 {
+  font-size: 15px;
+}
+
+.orbit-markdown .md-h3 {
+  font-size: 13.5px;
+}
+
+.md-italic {
+  font-style: italic;
+}
+
+.md-strike {
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+.md-ref {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.md-quote {
+  border-left: 3px solid var(--border);
+  margin: 8px 0;
+  padding: 6px 12px;
+  color: var(--muted-foreground);
+  background: rgba(127, 127, 127, 0.07);
+  border-radius: 0 8px 8px 0;
+}
+
+.md-quote p {
+  margin: 0 0 4px;
+}
+
+.md-quote p:last-child {
+  margin-bottom: 0;
+}
+
+.md-hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+
+.md-codeblock {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.md-codeblock-lang {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted-foreground);
+  padding: 6px 12px 0;
+  text-transform: lowercase;
+}
+
+.md-codeblock .md-pre {
+  border: 0;
+  background: none;
+  margin: 0;
+}
+
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.md-table th,
+.md-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.md-table thead th {
+  font-weight: 600;
+  background: rgba(127, 127, 127, 0.1);
+  white-space: nowrap;
+}
+
+.md-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.md-task {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.md-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10px;
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--success);
+}
+
+.md-checkbox.is-done {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 15%, transparent);
 }
 
 @media (max-width: 900px), (max-height: 650px) {

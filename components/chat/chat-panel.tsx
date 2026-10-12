@@ -94,7 +94,6 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const repoBoxRef = useRef<HTMLDivElement>(null);
   const plusBoxRef = useRef<HTMLDivElement>(null);
@@ -106,10 +105,16 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "end" });
   }, []);
 
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  // Single global scrollbar: stickiness is measured against the page, not an
+  // inner scroll box, so the chat never renders a second scrollbar.
+  useEffect(() => {
+    const onScroll = () => {
+      const doc = document.documentElement;
+      stickRef.current = doc.scrollHeight - window.innerHeight - window.scrollY < 160;
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   // Follow the conversation: snap on new messages, follow deltas while streaming.
@@ -593,7 +598,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
         )}
       </div>
 
-      <div className="orbit-scroll" ref={scrollRef} onScroll={handleScroll}>
+      <div className="orbit-scroll">
         {isLoading && (
           <div className="orbit-loading">
             <Loader2 className="size-4 animate-spin" /> Loading conversation…
@@ -648,7 +653,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
                   />
                 ) : null}
                 {m.content ? (
-                  <div className="orbit-markdown">{renderMarkdown(m.content)}</div>
+                  <div className="orbit-markdown">{renderMarkdown(m.content, { repo: activeRepo })}</div>
                 ) : isStreaming && mi === messages.length - 1 ? (
                   <ChatLiveIndicator
                     activeStep={activeStep || "Orchestrator is reasoning and analyzing repository..."}
