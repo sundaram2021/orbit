@@ -8,20 +8,29 @@ export function SettingsPanel() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
-      .then((data: { settings: UserSettings }) => setSettings(data.settings))
+      .then((data: { settings?: UserSettings; error?: string }) => {
+        if (data.settings) setSettings(data.settings);
+        else {
+          setSettings(null);
+          if (data.error) setSaveError(data.error);
+        }
+      })
       .catch(() => setSettings(null))
       .finally(() => setIsLoading(false));
   }, []);
 
   const toggle = async (key: "orchestrator_auto_approve" | "evaluator_auto_apply") => {
     if (!settings || isSaving) return;
+    const prev = { ...settings };
     const next = { ...settings, [key]: !settings[key] };
     setSettings(next);
     setIsSaving(true);
+    setSaveError(null);
     try {
       const res = await fetch("/api/settings", {
         method: "POST",
@@ -31,8 +40,17 @@ export function SettingsPanel() {
           evaluator_auto_apply: next.evaluator_auto_apply,
         }),
       });
-      const data = (await res.json()) as { settings: UserSettings };
-      if (data.settings) setSettings(data.settings);
+      const data = (await res.json()) as { settings?: UserSettings; error?: string };
+      if (!res.ok || !data.settings) {
+        // Revert: the toggle did NOT persist.
+        setSettings(prev);
+        setSaveError(data.error ?? `Save failed (${res.status}). Run the settings migration, then retry.`);
+      } else {
+        setSettings(data.settings);
+      }
+    } catch {
+      setSettings(prev);
+      setSaveError("Save failed: network error. Your change was reverted.");
     } finally {
       setIsSaving(false);
     }
@@ -51,9 +69,11 @@ export function SettingsPanel() {
         </div>
       )}
 
+      {saveError && <div className="chat-error" style={{ padding: "10px 19px" }}>{saveError}</div>}
+
       {!isLoading && settings && (
         <div className="settings-list">
-          <label className="setting-row">
+          <div className="setting-row" onClick={() => void toggle("orchestrator_auto_approve")}>
             <div>
               <p>Auto-approve agent runs</p>
               <small>Orchestrator runs, pushes, opens and merges PRs without asking. Off by default.</small>
@@ -62,14 +82,18 @@ export function SettingsPanel() {
               type="button"
               role="switch"
               aria-checked={settings.orchestrator_auto_approve}
+              aria-label="Auto-approve agent runs"
               className={`toggle ${settings.orchestrator_auto_approve ? "toggle-on" : ""}`}
-              onClick={() => void toggle("orchestrator_auto_approve")}
+              onClick={(e) => {
+                e.stopPropagation();
+                void toggle("orchestrator_auto_approve");
+              }}
             >
               <span />
             </button>
-          </label>
+          </div>
 
-          <label className="setting-row">
+          <div className="setting-row" onClick={() => void toggle("evaluator_auto_apply")}>
             <div>
               <p>Evaluator auto-apply tuning</p>
               <small>Evaluator rewrites sub-agent prompts and skills on its own. Off by default.</small>
@@ -78,12 +102,16 @@ export function SettingsPanel() {
               type="button"
               role="switch"
               aria-checked={settings.evaluator_auto_apply}
+              aria-label="Evaluator auto-apply tuning"
               className={`toggle ${settings.evaluator_auto_apply ? "toggle-on" : ""}`}
-              onClick={() => void toggle("evaluator_auto_apply")}
+              onClick={(e) => {
+                e.stopPropagation();
+                void toggle("evaluator_auto_apply");
+              }}
             >
               <span />
             </button>
-          </label>
+          </div>
         </div>
       )}
     </section>

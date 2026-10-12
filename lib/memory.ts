@@ -7,7 +7,7 @@ const BASE = "https://api.supermemory.ai";
  * Namespaced per user: `orbit-<userId>`. All failures degrade gracefully —
  * memory must never break an agent run.
  */
-function namespaceFor(userId: string): string {
+export function namespaceFor(userId: string): string {
   return `orbit-${userId}`.replace(/[^a-zA-Z0-9_.:-]/g, "-").slice(0, 100);
 }
 
@@ -28,6 +28,9 @@ export async function memoryRemember(
         content,
         containerTag: namespaceFor(userId),
         metadata: { app: "orbit", ...metadata },
+        // "instant" extracts memories right away instead of waiting to batch
+        // with other documents — agents read back what they wrote within minutes.
+        dreaming: "instant",
       }),
     });
   } catch (err) {

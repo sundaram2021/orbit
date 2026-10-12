@@ -1,0 +1,51 @@
+{
+  "at": "2026-10-12T15:51:53.242Z",
+  "prNumber": 12,
+  "results": [
+    {
+      "step": "seed",
+      "status": "PASS",
+      "detail": "README exists on default branch"
+    },
+    {
+      "step": "real-issue",
+      "status": "PASS",
+      "detail": "#11 assigned to @sundaram2021 https://github.com/sundaram2021/testing-ao/issues/11"
+    },
+    {
+      "step": "intake",
+      "status": "PASS",
+      "detail": "event 116336c5-52a1-480e-871e-6f28d3370013"
+    },
+    {
+      "step": "propose",
+      "status": "PASS",
+      "detail": "agent 2ab2108c-e6b5-4c64-a84c-392c302dff24 autoStarted=true"
+    },
+    {
+      "step": "prompt+skills",
+      "status": "PASS",
+      "detail": "skills=gh-pr-workflow"
+    },
+    {
+      "step": "run",
+      "status": "PASS",
+      "detail": "status=completed"
+    },
+    {
+      "step": "real-pr",
+      "status": "PASS",
+      "detail": "#12 https://github.com/sundaram2021/testing-ao/pull/12 branch=orbit/add-orbit-e2e-mv5fi4u9-txt-greeting-file-2ab210"
+    },
+    {
+      "step": "pr-files",
+      "status": "PASS",
+      "detail": "orbit-e2e-mv5fi4u9.txt"
+    },
+    {
+      "step": "evaluation",
+      "status": "PASS",
+      "detail": "score=55: The agent created the requested single-line file with the greeting and run tag, committed it locally on a feature branch, and reported honestly that p"
+    }
+  ]
+}

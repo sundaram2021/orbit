@@ -8,6 +8,8 @@ export function useTheme() {
 
   useEffect(() => {
     const current = getInitialTheme();
+    // Intentional: hydrate persisted theme on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(current);
     applyTheme(current);
   }, []);

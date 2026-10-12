@@ -34,38 +34,15 @@ async function notify(
   description: string,
   type: "sparkles" | "brain" | "pr" | "issue" | "event" = "sparkles"
 ): Promise<void> {
+  // Notifications live in the activity feed + toasts + bell — NEVER in the
+  // chat thread. The orchestrator page is a clean ChatGPT-style chat.
+  void userId;
   try {
     await supabase.from("activities").insert([
       { title, description, type },
     ]);
   } catch (err) {
     console.warn("activity notify failed:", err);
-  }
-  // Also drop a message into the orchestrator chat thread so the user
-  // sees "your agent is ready" in conversation form.
-  try {
-    const { data: thread } = await supabase
-      .from("chat_threads")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("kind", "orchestrator")
-      .single();
-    let threadId = (thread as { id?: string } | null)?.id;
-    if (!threadId) {
-      const { data: created } = await supabase
-        .from("chat_threads")
-        .insert([{ user_id: userId, kind: "orchestrator" }])
-        .select("id")
-        .single();
-      threadId = (created as { id?: string } | null)?.id;
-    }
-    if (threadId) {
-      await supabase.from("chat_messages").insert([
-        { thread_id: threadId, role: "assistant", content: `**${title}**\n\n${description}` },
-      ]);
-    }
-  } catch (err) {
-    console.warn("chat notify failed:", err);
   }
 }
 
@@ -77,6 +54,28 @@ interface ProposalInput {
   title?: string | null;
   body?: string | null;
   eventId?: string | null;
+}
+
+/**
+ * Insert tolerant of the v2 migration not being applied yet
+ * (skill_definitions / run_log columns). Retries without new columns.
+ */
+async function insertAgent(
+  supabase: SupabaseClient,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  row: Record<string, any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ data: any; error: any }> {
+  const first = await supabase.from("sub_agents").insert([row]).select("id").single();
+  if (!first.error) return first;
+  const msg = String(first.error.message ?? "");
+  if (msg.includes("skill_definitions") || msg.includes("run_log") || msg.includes("column")) {
+    const { skill_definitions: _drop1, run_log: _drop2, ...legacy } = row;
+    void _drop1;
+    void _drop2;
+    return supabase.from("sub_agents").insert([legacy]).select("id").single();
+  }
+  return first;
 }
 
 /**
@@ -118,22 +117,19 @@ export async function proposeAndMaybeRun(
   });
   await traceSpan(traceId, { name: "classified", detail: classification.plan });
 
-  const { data: agent, error } = await supabase
-    .from("sub_agents")
-    .insert([
-      {
-        user_id: input.userId,
-        event_id: input.eventId ?? null,
-        kind: classification.kind,
-        title: classification.title,
-        system_prompt: systemPrompt,
-        skills: skills.map((s) => s.name),
-        status: settings.orchestrator_auto_approve ? "running" : "awaiting_approval",
-        trace_id: traceId,
-      },
-    ])
-    .select("id")
-    .single();
+  // Always start as awaiting_approval — runSubAgent atomically claims
+  // (awaiting_approval → running) so duplicate triggers can't double-run.
+  const { data: agent, error } = await insertAgent(supabase, {
+    user_id: input.userId,
+    event_id: input.eventId ?? null,
+    kind: classification.kind,
+    title: classification.title,
+    system_prompt: systemPrompt,
+    skills: skills.map((s) => s.name),
+    skill_definitions: skills,
+    status: "awaiting_approval",
+    trace_id: traceId,
+  });
   if (error || !agent) throw new Error(`sub_agents insert failed: ${error?.message}`);
   const agentId = (agent as { id: string }).id;
 
@@ -144,9 +140,16 @@ export async function proposeAndMaybeRun(
       .eq("id", input.eventId);
   }
 
-  await memoryRemember(input.userId, `Spawned ${classification.kind} agent "${classification.title}" for ${classification.repo}.`, {
-    agent_id: agentId,
-  });
+  await memoryRemember(
+    input.userId,
+    [
+      `Orbit spawned a ${classification.kind} sub-agent titled "${classification.title}" for repository ${classification.repo}.`,
+      `Execution plan: ${classification.plan}`,
+      `Assigned skills: ${skills.map((s) => s.name).join(", ") || "none"}.`,
+      `Risk level: ${classification.risk}. Source: ${input.source}.`,
+    ].join(" "),
+    { agent_id: agentId }
+  );
 
   if (settings.orchestrator_auto_approve) {
     await notify(

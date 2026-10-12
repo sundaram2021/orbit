@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Octokit } from "@octokit/rest";
 import { createOrbitServerClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-service";
-import { runSubAgent } from "@/lib/sandbox/run";
+import { runSubAgent, writeResult } from "@/lib/sandbox/run";
 import { evaluateAgent, applyPatches } from "@/lib/eval/evaluate";
 import { destroySandbox } from "@/lib/sandbox/tensorlake";
 import { traceSpan } from "@/lib/traces";
@@ -96,7 +96,7 @@ async function handleReject(
   void userId;
 }
 
-async function handleApprove(
+export async function handleApprove(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   svc: any,
   userId: string,
@@ -111,7 +111,8 @@ async function handleApprove(
 
   switch (approval.kind) {
     case "run_agent": {
-      await svc.from("sub_agents").update({ status: "running" }).eq("id", approval.ref_id);
+      // runSubAgent atomically claims awaiting_approval → running.
+      await svc.from("sub_agents").update({ status: "awaiting_approval" }).eq("id", approval.ref_id);
       await runSubAgent(svc, userId, approval.ref_id);
       break;
     }
@@ -139,6 +140,12 @@ async function handleApprove(
       const { data: agent } = await svc.from("sub_agents").select("*").eq("id", ref.agentId).single();
       const traceId = ((agent as { trace_id?: string } | null)?.trace_id ?? ref.agentId) as string;
       await traceSpan(traceId, { name: "pr_opened", detail: `#${pr.data.number}` });
+      await writeResult(svc, ref.agentId, {
+        repo: ref.repo,
+        branch: ref.branch,
+        pr_number: pr.data.number,
+        pr_url: `https://github.com/${ref.repo}/pull/${pr.data.number}`,
+      });
       // Merge still needs its own approval (even in manual mode).
       await svc.from("approvals").insert([
         {
@@ -158,7 +165,14 @@ async function handleApprove(
       await svc.from("activities").insert([
         { title: `PR opened: #${pr.data.number}`, description: "Approve the merge to finish.", type: "pr" },
       ]);
-      void evaluateAgent(svc, userId, ref.agentId, ref.summary);
+      void evaluateAgent(
+        svc,
+        userId,
+        ref.agentId,
+        ref.summary,
+        ((agent as { run_log?: string } | null)?.run_log ?? "") as string,
+        { testsPassed: ref.testsPassed, repo: ref.repo, branch: ref.branch, base: ref.base, token }
+      );
       break;
     }
     case "merge": {
@@ -172,12 +186,29 @@ async function handleApprove(
       const octokit = new Octokit({ auth: token });
       const [o, r] = ref.repo.split("/");
       await octokit.pulls.merge({ owner: o, repo: r, pull_number: ref.prNumber, merge_method: "squash" });
+      await writeResult(svc, ref.agentId, { merged: true });
       const { data: agent } = await svc.from("sub_agents").select("*").eq("id", ref.agentId).single();
       const traceId = ((agent as { trace_id?: string } | null)?.trace_id ?? ref.agentId) as string;
       await traceSpan(traceId, { name: "merged", detail: `#${ref.prNumber} squash-merged` });
       if (ref.sandboxId) await destroySandbox({ id: ref.sandboxId, mock: false });
       await svc.from("activities").insert([
         { title: `PR merged: #${ref.prNumber}`, description: "Work is live.", type: "pr" },
+      ]);
+      break;
+    }
+    case "github_comment": {
+      if (!token) break;
+      const ref = JSON.parse(approval.ref_id) as { repo: string; number: string; body: string };
+      const octokit = new Octokit({ auth: token });
+      const [o, r] = ref.repo.split("/");
+      await octokit.issues.createComment({
+        owner: o,
+        repo: r,
+        issue_number: Number(ref.number),
+        body: ref.body,
+      });
+      await svc.from("activities").insert([
+        { title: `Comment posted on ${ref.repo}#${ref.number}`, description: "Posted by the orchestrator.", type: "event" },
       ]);
       break;
     }

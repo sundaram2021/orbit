@@ -15,8 +15,8 @@ import { LiveDot } from "@/components/common/live-dot";
 
 export function BentoSection() {
   return (
-    <div className="feature-section" id="intelligence">
-      <section className="section">
+    <section className="screen-stage bento-stage" id="intelligence">
+      <div className="section-content">
         <div className="section-heading">
           <div>
             <span className="eyebrow">Built for the whole lifecycle</span>
@@ -181,7 +181,7 @@ export function BentoSection() {
             </div>
           </article>
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
   );
 }

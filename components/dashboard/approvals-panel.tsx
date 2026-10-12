@@ -10,6 +10,7 @@ const KIND_LABELS: Record<ApprovalKind, string> = {
   merge: "Merge PR",
   prompt_update: "Prompt tuning",
   skill_update: "Skill tuning",
+  github_comment: "Post comment",
 };
 
 function describeApproval(a: Approval): string {
@@ -78,22 +79,22 @@ export function ApprovalsPanel() {
         <ShieldCheck className="size-3.5" />
       </div>
 
-      <div className="activity-list">
+      <div className="item-list">
         {isLoading && (
           <div className="chat-loading">
             <Loader2 className="size-4 animate-spin" /> Loading approvals…
           </div>
         )}
         {!isLoading && approvals.length === 0 && (
-          <div className="chat-empty">Nothing waiting. New agent proposals and tuning suggestions will appear here.</div>
+          <div className="panel-empty">Nothing waiting. New agent proposals and tuning suggestions will appear here.</div>
         )}
         {approvals.map((a) => (
-          <div key={a.id} className="activity approval-item">
-            <div>
-              <p>
-                {KIND_LABELS[a.kind]} <span className="mono">{new Date(a.created_at ?? "").toLocaleString()}</span>
-              </p>
-              <small>{describeApproval(a)}</small>
+          <div key={a.id} className="item">
+            <div className="item-body">
+              <div className="item-title">
+                {KIND_LABELS[a.kind]} <span className="item-meta">{new Date(a.created_at ?? "").toLocaleString()}</span>
+              </div>
+              <div className="item-desc">{describeApproval(a)}</div>
               <div className="approval-actions">
                 <button
                   type="button"

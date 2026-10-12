@@ -1,10 +1,8 @@
 import { HeroSection } from "@/components/home/hero-section";
 import { WorkflowSection } from "@/components/home/workflow-section";
-import { IntegrationStrip } from "@/components/home/integration-strip";
 import { BentoSection } from "@/components/home/bento-section";
 import { StepsSection } from "@/components/home/steps-section";
-import { FooterCta } from "@/components/home/footer-cta";
-import { SiteFooter } from "@/components/home/site-footer";
+import { FooterStage } from "@/components/home/footer-stage";
 
 export const metadata = {
   title: "Orbit — Your autonomous software factory",
@@ -14,14 +12,12 @@ export const metadata = {
 
 export default async function HomePage() {
   return (
-    <main>
+    <main className="stages-container">
       <HeroSection />
       <WorkflowSection />
-      <IntegrationStrip />
       <BentoSection />
       <StepsSection />
-      <FooterCta />
-      <SiteFooter />
+      <FooterStage />
     </main>
   );
 }

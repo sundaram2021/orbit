@@ -24,7 +24,7 @@ export async function classifyWork(input: {
   const prompt = `You are the classifier for Orbit, a GitHub orchestration system.
 Given a GitHub event or user request, output ONLY valid JSON (no markdown fences) with keys:
 kind ("implementation" | "review" | "testing" | "custom"), title (short task title),
-repo (owner/name), skillsNeeded (array of short skill names, e.g. "nextjs-16", "supabase-rls", "gh-pr-workflow", or new custom names),
+repo (owner/name), skillsNeeded (array of short skill names needed for THIS task only — empty array if no special skills are needed, e.g. "nextjs-16", "supabase-rls", "gh-pr-workflow", or new custom names),
 risk ("low" | "medium" | "high"), plan (2-4 sentence execution plan).
 
 Event source: ${input.source}
@@ -53,7 +53,7 @@ ${(input.body ?? "").slice(0, 4000)}`;
       repo: input.repo,
       skillsNeeded: Array.isArray(parsed.skillsNeeded)
         ? parsed.skillsNeeded.slice(0, 6).map(String)
-        : ["gh-pr-workflow"],
+        : [],
       risk: parsed.risk === "high" || parsed.risk === "medium" ? parsed.risk : "low",
       plan: parsed.plan || "Investigate, implement, test, open PR.",
     };
@@ -63,7 +63,7 @@ ${(input.body ?? "").slice(0, 4000)}`;
       kind: "custom",
       title: input.title || `${input.source} in ${input.repo}`,
       repo: input.repo,
-      skillsNeeded: ["gh-pr-workflow"],
+      skillsNeeded: [],
       risk: "low",
       plan: "Investigate, implement, test, open PR.",
     };

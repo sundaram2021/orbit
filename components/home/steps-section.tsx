@@ -4,8 +4,8 @@ import { ArrowUpRight } from "lucide-react";
 
 export function StepsSection() {
   return (
-    <div className="steps-section" id="how-it-works">
-      <section className="section">
+    <section className="screen-stage steps-stage" id="how-it-works">
+      <div className="section-content">
         <span className="eyebrow">From your backlog to your next release</span>
         <div className="section-heading">
           <h2>Less setup. More shipping.</h2>
@@ -45,7 +45,7 @@ export function StepsSection() {
             </p>
           </article>
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
   );
 }

@@ -1,32 +1,63 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
 import {
-  LayoutDashboard,
-  GitPullRequest,
+  Bot,
   Cpu,
-  Activity,
   Sparkles,
+  Activity,
   Brain,
+  Database,
+  ListVideo,
   Settings,
-  BookOpen,
-  ArrowUpRight,
   LogOut,
-  ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { OrbitMark } from "@/components/common/orbit-mark";
 import { LiveDot } from "@/components/common/live-dot";
-import { GithubIcon } from "@/components/common/github-icon";
 import { OrbitUser } from "@/types/orbit-types";
 import { getUserInitials } from "@/lib/format-helpers";
+
+export type OrbitNav =
+  | "orchestrator"
+  | "agents"
+  | "skills"
+  | "traces"
+  | "evaluator"
+  | "memory"
+  | "activity"
+  | "settings";
+
+export const ORBIT_NAV_LABELS: Record<OrbitNav, string> = {
+  orchestrator: "Orchestrator",
+  agents: "Agents",
+  skills: "Skills",
+  traces: "Traces",
+  evaluator: "Evaluator",
+  memory: "Memory",
+  activity: "Activity",
+  settings: "Settings",
+};
+
+const MAIN_NAV: { id: OrbitNav; icon: React.ReactNode }[] = [
+  { id: "orchestrator", icon: <Bot className="size-4" /> },
+  { id: "agents", icon: <Cpu className="size-4" /> },
+  { id: "skills", icon: <Sparkles className="size-4" /> },
+  { id: "traces", icon: <Activity className="size-4" /> },
+  { id: "evaluator", icon: <Brain className="size-4" /> },
+  { id: "memory", icon: <Database className="size-4" /> },
+  { id: "activity", icon: <ListVideo className="size-4" /> },
+];
 
 interface DashboardSidebarProps {
   user: OrbitUser | null;
   isOpen: boolean;
-  activeNav: string;
-  setActiveNav: (nav: string) => void;
+  activeNav: OrbitNav;
+  setActiveNav: (nav: OrbitNav) => void;
   onLogout: () => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 export function DashboardSidebar({
@@ -35,123 +66,87 @@ export function DashboardSidebar({
   activeNav,
   setActiveNav,
   onLogout,
+  collapsed,
+  onToggleCollapse,
 }: DashboardSidebarProps) {
   const initials = getUserInitials(user?.name);
-  const displayName = user?.name || "Alex Chen";
-  const displayHandle = user?.githubUsername ? `@${user.githubUsername}` : "@alexchen";
+  const displayName = user?.name || "User";
+  const displayHandle = user?.githubUsername ? `@${user.githubUsername}` : "";
 
   return (
-    <aside className={`sidebar ${isOpen ? "open" : ""}`}>
-      <Link className="brand" href="/">
-        <OrbitMark />
-        <span>orbit</span>
-      </Link>
+    <aside className={`sidebar ${isOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`}>
+      <div className="brand-row">
+        <span className="brand">
+          <OrbitMark />
+          <span className="brand-name">orbit</span>
+        </span>
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className="collapse-btn"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}
+        </button>
+      </div>
 
       <div className="workspace">
         <span className="workspace-avatar">{initials[0]}</span>
-        <div>
-          <strong>Orbit workspace</strong>
-          <small>{user ? "Pro plan · Live" : "Pro plan · Demo"}</small>
+        <div className="collapse-hide">
+          <div>
+            <strong>Orbit workspace</strong>
+          </div>
         </div>
-        <ChevronDown className="size-3" />
       </div>
 
-      <div className="nav-label">WORKSPACE</div>
+      <div className="nav-label collapse-hide">WORKSPACE</div>
       <nav>
-        <button
-          type="button"
-          className={activeNav === "overview" ? "active" : ""}
-          onClick={() => setActiveNav("overview")}
-        >
-          <LayoutDashboard className="size-4" />
-          Overview
-        </button>
-        <button
-          type="button"
-          className={activeNav === "tasks" ? "active" : ""}
-          onClick={() => setActiveNav("tasks")}
-        >
-          <GitPullRequest className="size-4" />
-          Tasks
-          <span>5</span>
-        </button>
-        <button
-          type="button"
-          className={activeNav === "agents" ? "active" : ""}
-          onClick={() => setActiveNav("agents")}
-        >
-          <Cpu className="size-4" />
-          Agents
-          <span>8</span>
-        </button>
-        <button
-          type="button"
-          className={activeNav === "repositories" ? "active" : ""}
-          onClick={() => setActiveNav("repositories")}
-        >
-          <GithubIcon className="size-4" />
-          Repositories
-        </button>
-      </nav>
-
-      <div className="nav-label mt-7">INTELLIGENCE</div>
-      <nav>
-        <button
-          type="button"
-          className={activeNav === "traces" ? "active" : ""}
-          onClick={() => setActiveNav("traces")}
-        >
-          <Activity className="size-4" />
-          Traces &amp; evals
-        </button>
-        <button
-          type="button"
-          className={activeNav === "skills" ? "active" : ""}
-          onClick={() => setActiveNav("skills")}
-        >
-          <Sparkles className="size-4" />
-          Skills
-        </button>
-        <button
-          type="button"
-          className={activeNav === "memory" ? "active" : ""}
-          onClick={() => setActiveNav("memory")}
-        >
-          <Brain className="size-4" />
-          Memory
-        </button>
+        {MAIN_NAV.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={activeNav === item.id ? "active" : ""}
+            onClick={() => setActiveNav(item.id)}
+            title={ORBIT_NAV_LABELS[item.id]}
+          >
+            {item.icon}
+            <span className="collapse-hide">{ORBIT_NAV_LABELS[item.id]}</span>
+          </button>
+        ))}
       </nav>
 
       <div className="sidebar-bottom">
-        <div className="sidebar-status">
+        <nav>
+          <button
+            type="button"
+            className={activeNav === "settings" ? "active" : ""}
+            onClick={() => setActiveNav("settings")}
+            title="Settings"
+          >
+            <Settings className="size-4" />
+            <span className="collapse-hide">Settings</span>
+          </button>
+        </nav>
+
+        <div className="sidebar-status collapse-hide">
           <div>
             <LiveDot /> All systems operational
           </div>
-          <p>{user ? "Live Supabase & GitHub connection" : "Demo workspace · Ready to connect"}</p>
         </div>
-
-        <nav>
-          <button type="button">
-            <Settings className="size-4" />
-            Settings
-          </button>
-          <Link href="/">
-            <BookOpen className="size-4" />
-            Back to Orbit
-            <ArrowUpRight className="size-3.5" />
-          </Link>
-        </nav>
 
         <div className="account">
           <span className="avatar">{initials}</span>
-          <div>
-            <strong>{displayName}</strong>
-            <small>{displayHandle} · {user ? "GitHub User" : "Demo"}</small>
+          <div className="collapse-hide">
+            <div>
+              <strong>{displayName}</strong>
+              <small>{displayHandle ? `${displayHandle} · GitHub` : "GitHub"}</small>
+            </div>
           </div>
           <button
             type="button"
             onClick={onLogout}
-            title={user ? "Sign out" : "Go to Sign in"}
+            title="Sign out"
             aria-label="Sign out"
             className="p-1 rounded hover:bg-accent cursor-pointer"
           >

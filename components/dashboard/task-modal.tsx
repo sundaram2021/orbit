@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, Sparkles, Loader2 } from "lucide-react";
 import { OrbitRepo } from "@/types/orbit-types";
 
@@ -24,11 +24,29 @@ export function TaskModal({
 }: TaskModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [liveRepos, setLiveRepos] = useState<string[]>([]);
   const [repoName, setRepoName] = useState(
     repositories[0]?.full_name || "orbit/platform"
   );
-  const [agent, setAgent] = useState("implementation-012");
+  const [agent, setAgent] = useState("orchestrator-auto");
   const [submitting, setSubmitting] = useState(false);
+
+  // Live GitHub repos so the user always picks a real target.
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch("/api/repos")
+      .then((r) => r.json())
+      .then((data: { repos?: { full_name: string }[] }) => {
+        const names = (data.repos ?? []).map((r) => r.full_name);
+        if (names.length > 0) {
+          setLiveRepos(names);
+          setRepoName((prev) =>
+            prev === "orbit/platform" || !names.includes(prev) ? names[0] : prev
+          );
+        }
+      })
+      .catch(() => setLiveRepos([]));
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -77,9 +95,12 @@ export function TaskModal({
             value={repoName}
             onChange={(e) => setRepoName(e.target.value)}
           >
-            {repositories.map((r) => (
+            {(liveRepos.length > 0
+              ? liveRepos.map((n) => ({ id: n, full_name: n, branch: "" }))
+              : repositories
+            ).map((r) => (
               <option key={r.id} value={r.full_name}>
-                {r.full_name} ({r.branch})
+                {r.full_name}{r.branch ? ` (${r.branch})` : ""}
               </option>
             ))}
           </select>
@@ -94,10 +115,10 @@ export function TaskModal({
 
           <label>Designated agent</label>
           <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-            <option value="implementation-012">Implementation agent (implementation-012)</option>
-            <option value="review-008">Code review agent (review-008)</option>
-            <option value="testing-006">Testing agent (testing-006)</option>
-            <option value="orchestrator-core">Orchestrator Core (auto-delegate)</option>
+            <option value="orchestrator-auto">Orchestrator (auto-pick kind)</option>
+            <option value="implementation">Implementation agent</option>
+            <option value="review">Code review agent</option>
+            <option value="testing">Testing agent</option>
           </select>
 
           <label>Task instructions &amp; constraints</label>

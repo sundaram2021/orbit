@@ -15,6 +15,8 @@ async function getThread(supabase: Awaited<ReturnType<typeof createOrbitServerCl
     .select("id")
     .eq("user_id", userId)
     .eq("kind", "evaluator")
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .single();
   if ((existing as { id?: string } | null)?.id) return (existing as { id: string }).id;
   const { data: created } = await supabase

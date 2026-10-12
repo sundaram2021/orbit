@@ -34,7 +34,7 @@ export async function buildSystemPrompt(
   const skills =
     opts.skillDefinitions && opts.skillDefinitions.length > 0
       ? opts.skillDefinitions.map((s) => `- ${s}`).join("\n")
-      : "- gh-pr-workflow: open PRs against the default branch with title, summary, test plan. Never push to the default branch.";
+      : "- (no special skills assigned — follow repo conventions and the rules below.)";
 
   return `${template}
 

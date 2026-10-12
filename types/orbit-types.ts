@@ -56,6 +56,22 @@ export type SubAgentKind =
   | "testing"
   | "custom";
 
+export interface SubAgentSkill {
+  name: string;
+  definition: string;
+  custom: boolean;
+}
+
+export interface AgentResult {
+  pr_number?: number;
+  pr_url?: string;
+  branch?: string;
+  repo?: string;
+  issue_number?: number;
+  issue_url?: string;
+  merged?: boolean;
+}
+
 export interface SubAgent {
   id: string;
   user_id: string;
@@ -64,6 +80,9 @@ export interface SubAgent {
   title: string;
   system_prompt: string;
   skills: string[];
+  skill_definitions?: SubAgentSkill[];
+  run_log?: string;
+  result?: AgentResult;
   status: SubAgentStatus;
   sandbox_id?: string | null;
   trace_id?: string | null;
@@ -96,7 +115,8 @@ export type ApprovalKind =
   | "publish_pr"
   | "merge"
   | "prompt_update"
-  | "skill_update";
+  | "skill_update"
+  | "github_comment";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 

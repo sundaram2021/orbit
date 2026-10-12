@@ -44,28 +44,28 @@ export function AgentsPanel() {
         <span className="mono">{agents.filter((a) => a.status === "running").length} RUNNING</span>
       </div>
 
-      <div className="activity-list">
+      <div className="item-list">
         {isLoading && (
           <div className="chat-loading">
             <Loader2 className="size-4 animate-spin" /> Loading agents…
           </div>
         )}
         {!isLoading && agents.length === 0 && (
-          <div className="chat-empty">
+          <div className="panel-empty">
             No sub-agents yet. Polled GitHub events and orchestrator chat requests will spawn them here.
           </div>
         )}
         {agents.map((a) => (
-          <div key={a.id} className="activity">
+          <div key={a.id} className="item">
             <Bot className="size-3.5" />
-            <div>
-              <p>
+            <div className="item-body">
+              <div className="item-title">
                 {a.title} <span className={`status-badge status-${a.status}`}>{STATUS_LABEL[a.status]}</span>
-              </p>
-              <small>
+              </div>
+              <div className="item-desc">
                 {a.kind} · {a.skills.join(", ") || "no skills"}
                 {a.eval_score != null && ` · score ${a.eval_score}`}
-              </small>
+              </div>
             </div>
           </div>
         ))}

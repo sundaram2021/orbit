@@ -1,0 +1,120 @@
+{
+  "at": "2026-10-12T15:54:42.671Z",
+  "results": [
+    {
+      "step": "github-repo",
+      "status": "PASS",
+      "detail": "GET repos/sundaram2021/testing-ao → 200"
+    },
+    {
+      "step": "schema:github_connections",
+      "status": "PASS",
+      "detail": "HTTP 200 "
+    },
+    {
+      "step": "schema:github_events",
+      "status": "PASS",
+      "detail": "HTTP 200 "
+    },
+    {
+      "step": "schema:sub_agents",
+      "status": "PASS",
+      "detail": "HTTP 200 "
+    },
+    {
+      "step": "schema:chat_threads",
+      "status": "PASS",
+      "detail": "HTTP 200 "
+    },
+    {
+      "step": "schema:approvals",
+      "status": "PASS",
+      "detail": "HTTP 200 "
+    },
+    {
+      "step": "schema:evaluations",
+      "status": "PASS",
+      "detail": "HTTP 200 "
+    },
+    {
+      "step": "schema:user_settings",
+      "status": "PASS",
+      "detail": "HTTP 200 "
+    },
+    {
+      "step": "schema:agent_templates",
+      "status": "PASS",
+      "detail": "HTTP 200 "
+    },
+    {
+      "step": "schema:skill_library",
+      "status": "PASS",
+      "detail": "HTTP 200 "
+    },
+    {
+      "step": "schema:sub_agents.v2",
+      "status": "PASS",
+      "detail": "run_log+skill_definitions → HTTP 200"
+    },
+    {
+      "step": "classify",
+      "status": "PASS",
+      "detail": "{\"kind\":\"implementation\",\"title\":\"Add GET /hello endpoint returning JSON with test\",\"repo\":\"sundaram2021/testing-ao\",\"skillsNeeded\":[\"gh-pr-workflow\"],\"risk\":\"low\",\"plan\":\"Inspect the testing-ao repository to identify its framework and existing routing conventions. Implement a GET /hello route that "
+    },
+    {
+      "step": "skills",
+      "status": "PASS",
+      "detail": "[{\"n\":\"gh-pr-workflow\",\"custom\":true,\"len\":40},{\"n\":\"testing-ao-contracts\",\"custom\":true,\"len\":46}]"
+    },
+    {
+      "step": "prompt-build",
+      "status": "PASS",
+      "detail": "1057 chars, repo+branch rules present"
+    },
+    {
+      "step": "sandbox-create",
+      "status": "PASS",
+      "detail": "id=3wsi9c8p2bz3die4r6b2g mock=false"
+    },
+    {
+      "step": "sandbox-clone",
+      "status": "PASS",
+      "detail": "exit=0 out=total 20\ndrwxr-xr-x 3 tl-user tl-user 4096 Oct 12 15:53 .\ndrwxr-xr-x 3 tl-user tl-user 4096 Oct 12 15:53 ..\ndrwxr-xr-x 8 tl-user tl-user 4096 Oct 12 15:53 .git\n-rw-r--r-- 1 tl-user tl-user   41 Oct 12 err=Cloning into '/tmp/orbit-work/testing-ao'..."
+    },
+    {
+      "step": "sandbox-exec",
+      "status": "PASS",
+      "detail": "exit=0 out={\"msg\":\"hello\"}"
+    },
+    {
+      "step": "sandbox-destroy",
+      "status": "PASS",
+      "detail": "destroy called"
+    },
+    {
+      "step": "neatlogs",
+      "status": "PASS",
+      "detail": "trace orbit-mv5flzd8-xfntpt spans sent (verify in dashboard; failures are non-fatal by design)"
+    },
+    {
+      "step": "memory-remember",
+      "status": "PASS",
+      "detail": "remember call completed"
+    },
+    {
+      "step": "memory-recall",
+      "status": "PASS",
+      "detail": "recall returned 428 chars: In sandbox tests, use /tmp paths because /workspace is not writable.\n---\nThree sandbox tests passed when running bun test on repository sundaram2021/testing-ao.\n---\nOrbit E2E verification for reposito"
+    },
+    {
+      "step": "memory-graph-api",
+      "status": "PASS",
+      "detail": "documents list → HTTP 200"
+    },
+    {
+      "step": "evaluator",
+      "status": "PASS",
+      "detail": "score=12 summary=The agent did not implement a /hello endpoint. It wrote a static hello.json containing {\"msg\":\"hello\"}, which is a data file, not a route handler. The"
+    }
+  ]
+}

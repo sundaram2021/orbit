@@ -13,6 +13,7 @@
     "@octokit/rest": "^22.0.1",
     "@supabase/server": "^1.9.1",
     "@supabase/ssr": "^0.12.7",
+    "@supermemory/memory-graph": "^0.2.5",
     "lucide-react": "^1.55.0",
     "next": "16.4.0",
     "react": "19.3.0",

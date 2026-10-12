@@ -98,21 +98,31 @@ async function processOutput(
   sandboxId: string,
   pid: number
 ): Promise<{ stdout: string; stderr: string }> {
-  const [out, err] = await Promise.all([
-    fetch(
-      `https://${sandboxId}.sandbox.tensorlake.ai/api/v1/processes/${pid}/stdout`,
-      { headers: authHeaders() }
-    )
-      .then((r) => (r.ok ? r.text() : ""))
-      .catch(() => ""),
-    fetch(
-      `https://${sandboxId}.sandbox.tensorlake.ai/api/v1/processes/${pid}/stderr`,
-      { headers: authHeaders() }
-    )
-      .then((r) => (r.ok ? r.text() : ""))
-      .catch(() => ""),
-  ]);
-  return { stdout: out, stderr: err };
+  // Output endpoints return JSON {pid, lines[], line_count} — join lines,
+  // falling back to raw text for any other shape.
+  const fetchStream = async (kind: "stdout" | "stderr"): Promise<string> => {
+    try {
+      const res = await fetch(
+        `https://${sandboxId}.sandbox.tensorlake.ai/api/v1/processes/${pid}/${kind}`,
+        { headers: authHeaders() }
+      );
+      if (!res.ok) return "";
+      const text = await res.text();
+      try {
+        const parsed = JSON.parse(text) as { lines?: unknown };
+        if (Array.isArray(parsed.lines)) {
+          return parsed.lines.map((l) => String(l)).join("\n");
+        }
+      } catch {
+        // not JSON — use raw text
+      }
+      return text;
+    } catch {
+      return "";
+    }
+  };
+  const [stdout, stderr] = await Promise.all([fetchStream("stdout"), fetchStream("stderr")]);
+  return { stdout, stderr };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

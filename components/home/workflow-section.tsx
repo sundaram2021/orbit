@@ -11,11 +11,13 @@ import {
 } from "lucide-react";
 import { OrbitMark } from "@/components/common/orbit-mark";
 import { LiveDot } from "@/components/common/live-dot";
+import { IntegrationStrip } from "./integration-strip";
 
 export function WorkflowSection() {
   return (
-    <section id="platform" className="section product-intro">
-      <div className="section-heading">
+    <section id="platform" className="screen-stage workflow-stage">
+      <div className="section-content">
+        <div className="section-heading">
         <div>
           <span className="eyebrow">
             <Network className="size-3.5" />
@@ -113,6 +115,9 @@ export function WorkflowSection() {
           <ArrowUpRight className="size-3.5" />
         </div>
       </div>
-    </section>
-  );
+
+      <IntegrationStrip />
+    </div>
+  </section>
+);
 }
