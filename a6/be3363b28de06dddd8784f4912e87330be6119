@@ -1,0 +1,356 @@
+lib/eval/rubrics.ts
+  s_ada6f29a4c5d68::t_2087951e5084bf 1-59
+components/dashboard/dashboard-sidebar.tsx
+  s_ada6f29a4c5d68::t_fb5816aa28df20 5,8,10-11,14-15,22-52,56-57,59-60,69-70,73-74,77-92,96-99,103,105-116,121-126,128,140-144,149
+  s_ada6f29a4c5d68::t_dd90dcf986c29b 132-136
+  s_ada6f29a4c5d68::t_d12f3454603bb9 137
+app/api/settings/route.ts
+  s_ada6f29a4c5d68::t_8f4bfc171cc835 12-17,38-46,48-67,69-75
+app/api/activity/route.ts
+  s_ada6f29a4c5d68::t_106c14c7f58aec 1-22
+app/api/approvals/route.ts
+  s_ada6f29a4c5d68::t_8ce4a5f5493439 114-115
+  s_ada6f29a4c5d68::t_38817896f7f342 199-214
+  s_ada6f29a4c5d68::t_86d2cdfdec50f3 5,143-148,189
+  s_ada6f29a4c5d68::t_5f6d1879a6d925 168-172,175
+  s_ada6f29a4c5d68::t_e121944de4cad1 173-174
+  s_ada6f29a4c5d68::t_5b3c744910f509 99
+components/dashboard/views/orchestrator-view.tsx
+  s_ada6f29a4c5d68::t_dea8eaba630575 3,10-14,16,21-22,45-50,68
+  s_ada6f29a4c5d68::t_f6a3ddf37cbd3a 1-2,7,9,20,34-43,69-71
+  s_ada6f29a4c5d68::t_c2aeb3037372bd 4-6,8,17-19,23-33,51-67
+  s_ada6f29a4c5d68::t_5b8e380569f40b 15,44
+lib/orchestrator/skills.ts
+  s_ada6f29a4c5d68::t_8f9bf4c91b1100 4-9,11-14,19,21,56-69
+  s_ada6f29a4c5d68::t_898ab26ab94fcb 70-72
+components/dashboard/views/settings-view.tsx
+  s_ada6f29a4c5d68::t_0f007331020d98 1-21
+scripts/real-e2e-results.json
+  s_ada6f29a4c5d68::t_c6a2cb4b0b233a 2-3,13,18,23,32-33,38,42-43,47-48
+  s_ada6f29a4c5d68::t_edd768f6e8fc7e 1,4-12,14-17,19-22,24-31,34-37,39-41,44-46,49-51
+components/dashboard/approvals-panel.tsx
+  s_ada6f29a4c5d68::t_20b4da74c07f3d 82,89,92-97
+  s_ada6f29a4c5d68::t_e0451c5bd4b794 13
+lib/orchestrator/prompts.ts
+  s_ada6f29a4c5d68::t_f8ce9938a0d4b0 37
+scripts/e2e-test.ts
+  s_ada6f29a4c5d68::t_23107f85bedcfa 1-96,98-159,161-163,165-182,186,188-192,196-251
+  s_ada6f29a4c5d68::t_e059782726ea26 97
+  s_ada6f29a4c5d68::t_82ed1f7ef0e2c6 160,164
+  s_ada6f29a4c5d68::t_8ea834866760d8 183-185,187
+  s_ada6f29a4c5d68::t_933c22ede916b4 193-195
+supabase/migrations/20261012_settings_ensure.sql
+  s_ada6f29a4c5d68::t_212d05056bcce2 1-16
+app/api/agents/[id]/approve/route.ts
+  s_ada6f29a4c5d68::t_21e3beb9411a60 1-40
+hooks/use-chat.ts
+  s_ada6f29a4c5d68::t_4b7dd04cd211e3 47-49
+  s_ada6f29a4c5d68::t_1a3ae55568a067 39
+  s_ada6f29a4c5d68::t_9dda6c13eff0d9 17-28
+  s_ada6f29a4c5d68::t_35b3534f887773 7,9-16,31-32,40,44,50,67-96,100-124,131-144,172-176,206-208,212-213,222,230-245,247-248
+  s_ada6f29a4c5d68::t_a05bab60bfd9d5 45
+  s_ada6f29a4c5d68::t_a120efd8ff6116 211
+  s_ada6f29a4c5d68::t_ba1e9260eaf4ca 6,8,36-38,43,51-56,58-65,147
+  s_ada6f29a4c5d68::t_cebabcb99ddfce 57
+  s_ada6f29a4c5d68::t_c40168802d5dc7 66
+  s_ada6f29a4c5d68::t_4c7a7789db9d23 145
+lib/tools/sandbox-exec.ts
+  s_ada6f29a4c5d68::t_7858e48650c284 16-17,19
+  s_ada6f29a4c5d68::t_9405ba50b60cb2 2
+  s_ada6f29a4c5d68::t_5e34ed67d78089 18
+  s_ada6f29a4c5d68::t_1416eecb5f18c7 1,3-15,20-108
+app/api/chat/orchestrator/route.ts
+  s_ada6f29a4c5d68::t_5032729f4ea04a 86,90,92-97
+  s_ada6f29a4c5d68::t_1b848e69461dd9 33-49,55-56,63,69-71
+  s_ada6f29a4c5d68::t_a4d99d3db8e512 196-198,203-206,208-224,226-251
+  s_ada6f29a4c5d68::t_ab2cb4943dbf44 26,275-276,283-287
+  s_ada6f29a4c5d68::t_8b250431aa22e1 117-139,153,155
+  s_ada6f29a4c5d68::t_3ff3273ae0b82a 8-18,72
+  s_ada6f29a4c5d68::t_3386fc0281e822 24-25,88
+  s_ada6f29a4c5d68::t_5d4d9ab244903c 199-202,207
+  s_ada6f29a4c5d68::t_e857c058fdba59 169
+  s_ada6f29a4c5d68::t_44492cc4a44d73 73
+types/orbit-types.ts
+  s_ada6f29a4c5d68::t_2d00bdf04ff9a6 118-119
+  s_ada6f29a4c5d68::t_a9959e63a3b880 59-64,83-84
+  s_ada6f29a4c5d68::t_6fa869c356593d 65-74,85
+components/chat/chat-panel.tsx
+  s_ada6f29a4c5d68::t_60a9563f60e5e8 5,21,24-25
+  s_ada6f29a4c5d68::t_5f4cec76fe0545 7-8
+  s_ada6f29a4c5d68::t_6aa41e4bb255ff 4,9-13,18,20,27-29,31,37-38,41-58,66-102,104-128,130-153,155-158,180-183
+  s_ada6f29a4c5d68::t_1eabe169202005 154
+  s_ada6f29a4c5d68::t_0beb295f9ad53a 169-171
+  s_ada6f29a4c5d68::t_c62fdb4a39b244 39-40
+supabase/migrations/20261012_final_all.sql
+  s_ada6f29a4c5d68::t_d958189f07df43 1-46
+scripts/tools-results.json
+  s_ada6f29a4c5d68::t_d02716721a8c6f 3
+  s_ada6f29a4c5d68::t_e2113134cb9af5 2
+  s_ada6f29a4c5d68::t_d28e044149848e 1,5
+  s_ada6f29a4c5d68::t_f94f59245beabc 4
+components/dashboard/views/activity-view.tsx
+  s_ada6f29a4c5d68::t_55461199d594c8 34-44
+  s_ada6f29a4c5d68::t_76706fa271a803 1-2,5-9,11-33,45-67,79-84,90-94,96-113
+  s_ada6f29a4c5d68::t_0810c3fff11a17 86
+  s_ada6f29a4c5d68::t_77380d28f311cf 68-78,85,87-89,95
+  s_ada6f29a4c5d68::t_66e02630a75a97 3-4,10
+scripts/real-e2e.ts
+  s_ada6f29a4c5d68::t_7d0c1377fe45d7 121
+  s_ada6f29a4c5d68::t_56a0177f3105b4 65,68,71-72
+  s_ada6f29a4c5d68::t_62fb3d132c5fb9 66-67
+  s_ada6f29a4c5d68::t_d435924409cfe9 1-64,69-70,73-85,89-95,102-111,113,115-120,122-155
+  s_ada6f29a4c5d68::t_769c6e0ce32940 112,114
+  s_ada6f29a4c5d68::t_7be5b22f86a7df 86-88,96-101
+components/dashboard/agents-panel.tsx
+  s_ada6f29a4c5d68::t_c90ef8b19d7622 47,54,59,61-62,64-65,68
+lib/orchestrator/spawn.ts
+  s_ada6f29a4c5d68::t_a7e561c3ed6967 120-121,130
+  s_ada6f29a4c5d68::t_ddfba10619bcaa 143-152
+  s_ada6f29a4c5d68::t_cd5a44383f4188 60-80
+  s_ada6f29a4c5d68::t_e9d02f21275ba9 122-129,131-132
+  s_ada6f29a4c5d68::t_7622600058d8f7 37-39
+  s_ada6f29a4c5d68::t_3cb08bd510f30d 59
+scripts/e2e-results.json
+  s_ada6f29a4c5d68::t_c62291dc81fcd5 1,3-55,58-61,63-66,68-71,73-76,78-80,83-85,88-96,98-106,110-116,118-120
+  s_ada6f29a4c5d68::t_6c0ab1114f416f 81,86-87,108-109
+  s_ada6f29a4c5d68::t_0943b4f6b1d605 2,56-57,62,67,72,77,82,97,107,117
+app/api/agents/[id]/cancel/route.ts
+  s_ada6f29a4c5d68::t_16dd1a941c3df6 1-25
+app/api/repos/route.ts
+  s_ada6f29a4c5d68::t_41614a57809dac 1-41
+components/dashboard/dashboard-view.tsx
+  s_ada6f29a4c5d68::t_f9584a12ce3522 3-4,8,10,13-20,34,36,40,44-55,60,62,69-80,92,104-107,109-110,116,121-128
+  s_ada6f29a4c5d68::t_4101d1c0b5ebc8 9,99
+scripts/tools-test.ts
+  s_ada6f29a4c5d68::t_9cc51704a4f3e9 1-69,73-144
+  s_ada6f29a4c5d68::t_c53b294ab82027 70-72
+components/dashboard/views/skills-view.tsx
+  s_ada6f29a4c5d68::t_443232e56aaafd 1-2,5-15,17-24,35-44,56-61,67-70,72-83
+  s_ada6f29a4c5d68::t_aaeeb7e7abb514 63
+  s_ada6f29a4c5d68::t_a3fb87758337cc 45-55,62,64-66,71
+  s_ada6f29a4c5d68::t_8d730e8b7e38b9 3-4
+  s_ada6f29a4c5d68::t_4512f2c0c939b2 16,25-34
+hooks/use-theme.ts
+  s_ada6f29a4c5d68::t_3da2e7b02df645 11-12
+lib/sandbox/run.ts
+  s_ada6f29a4c5d68::t_a04a7a63dbd14e 77-78
+  s_ada6f29a4c5d68::t_ed3f4fe99979c7 135,140-153
+  s_ada6f29a4c5d68::t_129ad0f99c702c 70-71,73-76
+  s_ada6f29a4c5d68::t_7840bc6176b261 333-334
+  s_ada6f29a4c5d68::t_d95b15d72e75d9 352,356-358,410,414-416
+  s_ada6f29a4c5d68::t_c13f198e1c5dd6 359-382
+  s_ada6f29a4c5d68::t_8cd4e3682b39e9 131-133
+  s_ada6f29a4c5d68::t_a1b12a7d7cdbbb 397,403
+  s_ada6f29a4c5d68::t_1196f27c73b4a7 405,535
+  s_ada6f29a4c5d68::t_90ff101ae1164e 9-15,18-38
+  s_ada6f29a4c5d68::t_2619df82adcd03 406
+  s_ada6f29a4c5d68::t_08e0c3eeaf6672 510-515,537
+  s_ada6f29a4c5d68::t_4ef02e24950b11 165-168
+  s_ada6f29a4c5d68::t_199c62479cbc20 316-318
+  s_ada6f29a4c5d68::t_41dd8246fd2190 204,268-270,285
+  s_ada6f29a4c5d68::t_5c89127d676a85 207,288,290
+  s_ada6f29a4c5d68::t_0c0785919b638b 312-315
+  s_ada6f29a4c5d68::t_d7584e74208a39 100-109
+  s_ada6f29a4c5d68::t_107b4a5b5e19b8 324-332,335-349
+  s_ada6f29a4c5d68::t_7cf502cd33061e 383-388,390
+  s_ada6f29a4c5d68::t_0ea032bbc7d2c9 454-503
+  s_ada6f29a4c5d68::t_d552c02904cd33 311
+  s_ada6f29a4c5d68::t_3ea8063187affe 179,440
+  s_ada6f29a4c5d68::t_1404436cd0c582 183-184,186-195,199,205-206,208-233,256-260,262-263,265-267,271-284,289,294-295,299-301
+  s_ada6f29a4c5d68::t_6b250c69a4d531 159-162,164,171
+  s_ada6f29a4c5d68::t_4b11fe24aa386c 304,307
+  s_ada6f29a4c5d68::t_1532d4a5b46494 396
+  s_ada6f29a4c5d68::t_041c1321042701 421
+lib/sandbox/tensorlake.ts
+  s_ada6f29a4c5d68::t_7a9c6cfb1adda7 101-125
+lib/tools/github.ts
+  s_ada6f29a4c5d68::t_31e0c0afc7273e 1-117
+supabase/migrations/20261012_orchestrator_v2.sql
+  s_ada6f29a4c5d68::t_5e36ead4cce785 1-12
+app/api/memory/route.ts
+  s_ada6f29a4c5d68::t_95b530ab5f6736 1-18
+supabase/migrations/20261012_orchestrator_v4.sql
+  s_ada6f29a4c5d68::t_c9de89f82744a9 1-7
+lib/eval/verify.ts
+  s_ada6f29a4c5d68::t_73fa571a93d72a 1-69
+supabase/migrations/20261012_orchestrator_v3.sql
+  s_ada6f29a4c5d68::t_30a66a2535cb56 1-5
+app/api/skills/route.ts
+  s_ada6f29a4c5d68::t_48b85125289eb9 1-29
+components/dashboard/task-modal.tsx
+  s_ada6f29a4c5d68::t_2c30cdad5162fc 98-101,103
+  s_ada6f29a4c5d68::t_ea8f40da87a631 3,27,34-49
+  s_ada6f29a4c5d68::t_dccdccd9173227 31
+  s_ada6f29a4c5d68::t_fa60e8ea483d92 118-121
+  s_ada6f29a4c5d68::t_bcb2bf4a272478 50
+components/dashboard/agent-card.tsx
+  s_ada6f29a4c5d68::t_ac3a9ee564acd8 1-250
+lib/eval/gates.ts
+  s_ada6f29a4c5d68::t_48f32e48926758 47,78
+  s_ada6f29a4c5d68::t_44f205f4036ca8 1-31,44-46,48-77,79-100
+  s_ada6f29a4c5d68::t_2ef9bdc23b15b1 32-43
+components/dashboard/views/evaluator-view.tsx
+  s_ada6f29a4c5d68::t_f3ad26ee4670df 3-5,7-20,23,25-27,29-47,49-59,61-69,71-84,91-92,95-120,123-125,127-170,173-235
+  s_ada6f29a4c5d68::t_80c5db32ccdfe0 1-2,6,21-22,24,28,48,60,70,85-90,93-94,121-122,126,171-172,236-239
+supabase/migrations/20261012_final_tools.sql
+  s_ada6f29a4c5d68::t_24a18e687f63db 1-44
+lib/traces.ts
+  s_ada6f29a4c5d68::t_839b82a1c298cd 1-5,19,24,28-29,31-32,36
+components/dashboard/views/memory-view.tsx
+  s_ada6f29a4c5d68::t_d59f617671deb4 1-2,7,43,47,60-70,119-126,128-134
+  s_ada6f29a4c5d68::t_ba089388b2c9ec 3-4,8-10,19,42,45-46,48-50,52-59,127
+  s_ada6f29a4c5d68::t_cfd91a8734fd80 5,90-118
+  s_ada6f29a4c5d68::t_5d189ebdfe5d99 11-18,20-41,71-89
+  s_ada6f29a4c5d68::t_80881a280c12c7 6,44,51
+lib/memory.ts
+  s_ada6f29a4c5d68::t_6d5b15f02291af 31-33
+  s_ada6f29a4c5d68::t_b6d621543db0e6 10
+lib/chat-markdown.tsx
+  s_ada6f29a4c5d68::t_47516976051a33 1-87
+lib/eval/evaluate.ts
+  s_ada6f29a4c5d68::t_555ad042306c81 30
+  s_ada6f29a4c5d68::t_9f38253a1b798e 5,28,38-42,52-53,57-58,72,101,106-110
+  s_ada6f29a4c5d68::t_23fb3a8d792d72 10,13,19-22,29,32-33,48,54-56,68-70,87,102-105
+  s_ada6f29a4c5d68::t_67085cc1388c9f 37
+lib/tools/sandbox-files.ts
+  s_ada6f29a4c5d68::t_381b58b4ce6f5f 1-50,52-57,59-215
+  s_ada6f29a4c5d68::t_e519c158082aa0 51,58
+components/dashboard/dashboard-header.tsx
+  s_ada6f29a4c5d68::t_e9e0780df13c5e 45-46
+  s_ada6f29a4c5d68::t_e4926471c2580c 3-4,8,10,14,18,20-44,47-72,87,98-145
+  s_ada6f29a4c5d68::t_d0b36287315ab7 91
+components/dashboard/orchestrator-status.tsx
+  s_ada6f29a4c5d68::t_d63a91bf0483cf 1-3,6-13,15-49,51-59,64-71,74-83,85-88,90-143
+  s_ada6f29a4c5d68::t_f3d7572d43f6d8 14,50,60-63
+  s_ada6f29a4c5d68::t_8dffcf5a17a6b5 72-73,84
+  s_ada6f29a4c5d68::t_f602d12ef32e2d 4-5,89
+components/dashboard/views/traces-view.tsx
+  s_ada6f29a4c5d68::t_9a804827eabc8c 4
+  s_ada6f29a4c5d68::t_a8197f36fd2ff3 1-3,5-15,17-37,39-48,51-53,64,67-69
+  s_ada6f29a4c5d68::t_b82fc24ba33a67 38,50,54-63,65-66
+  s_ada6f29a4c5d68::t_cff749e6c0ba45 49
+  s_ada6f29a4c5d68::t_d6e76f72335a91 16
+components/dashboard/settings-panel.tsx
+  s_ada6f29a4c5d68::t_e158e58261802f 72-73
+  s_ada6f29a4c5d68::t_b9617f015a7614 76,85,87-90,94,96,105,107-110,114
+  s_ada6f29a4c5d68::t_6b72686525f99e 11,16-22,29,33,43-53
+components/dashboard/views/agents-view.tsx
+  s_ada6f29a4c5d68::t_d4a436dd388192 69-70,76-78,80,84,112-119,121-122,131,133-134
+  s_ada6f29a4c5d68::t_e7fba547eea816 1-2,5,7,9,18-21,24-55,68,87-92,94-96,123-130,136-139,143-146
+  s_ada6f29a4c5d68::t_bf51e6fab3f07d 132
+  s_ada6f29a4c5d68::t_ec56570c2478b1 3,22
+  s_ada6f29a4c5d68::t_247130020bed17 4,6,8,10-17,23,56-67,71-75,79,81-83,85-86,93,97-111,120,135,140-142
+app/api/chat/orchestrator/threads/route.ts
+  s_ada6f29a4c5d68::t_c2d27040f01df0 1-62
+lib/tools/orchestrator-tools.ts
+  s_ada6f29a4c5d68::t_0745f3ca33ebd6 1-143
+app/api/chat/evaluator/route.ts
+  s_ada6f29a4c5d68::t_11a3fda5905289 18-19
+app/globals.css
+  s_ada6f29a4c5d68::t_c19146c87d1194 58,226,233-234,238-239,245,259,366,369,587,607,652,698,773,794,842,846,849-850,857,865,870-871,874,890,895,914,922,926,935,2887,2975-3116,3118,3120-3270,3349-3361
+  s_ada6f29a4c5d68::t_28ef9420dbe8a3 1960-1980
+  s_ada6f29a4c5d68::t_f57d8b4cdbf33f 2507-2511,2550-2556
+  s_ada6f29a4c5d68::t_262383f71706cb 2527-2532
+  s_ada6f29a4c5d68::t_c4531005f203c0 2534
+  s_ada6f29a4c5d68::t_579004c31a8f38 2568-2576,3381,3390
+  s_ada6f29a4c5d68::t_c099365360f387 2430-2431,2457-2459,2956-2964
+  s_ada6f29a4c5d68::t_dccb01891e1b42 678,2889-2955,2965-2974
+  s_ada6f29a4c5d68::t_d4ebf09963e0f6 225,231-232,242,257-258,367,668,768,792-793,855,868-869,877-879,888,892,899,929-931,934,3271-3348
+  s_ada6f29a4c5d68::t_7cc4d4cde41483 405,781,863,2309-2317,2320-2378
+  s_ada6f29a4c5d68::t_e7758310e1299d 551,900,2128-2308,2318-2319,2379-2407,2413-2429,2432-2456,2460-2506,2512-2526,2537-2549,2557-2567
+  s_ada6f29a4c5d68::t_f5318b8bf562e0 2533,2535-2536
+  s_ada6f29a4c5d68::t_970436a9713a84 3117,3119
+  s_ada6f29a4c5d68::t_e0e349ab2447a0 803-821,823,825-826,831-839
+  s_ada6f29a4c5d68::t_584a785fb2595b 2408-2412
+  s_ada6f29a4c5d68::t_ac0b5251af3e47 208,390,595,631,706,766,873,2577-2885,3365,3374,3378,3382,3387,3392,3398,3404,3411
+  s_ada6f29a4c5d68::t_c978aa8b22a90c 1981,1987
+  s_ada6f29a4c5d68::t_25f0879a00dfa8 55-57
+  s_ada6f29a4c5d68::t_52c2a2a208dc00 59
+  s_ada6f29a4c5d68::t_a207a32dd10d9b 223-224
+  s_ada6f29a4c5d68::t_c13c856ffd46f0 227-230
+  s_ada6f29a4c5d68::t_d26ae2096d023b 235-237
+  s_ada6f29a4c5d68::t_af30cc57bc26dd 240-241
+  s_ada6f29a4c5d68::t_be8dcc2689a9e3 243-244
+  s_ada6f29a4c5d68::t_e7141df8e10701 246-247
+  s_ada6f29a4c5d68::t_b33e9ae5fcbc03 260-261
+  s_ada6f29a4c5d68::t_0f76a42adeb484 368
+  s_ada6f29a4c5d68::t_4889a68753d8e5 370-371
+  s_ada6f29a4c5d68::t_ec7d82fc842b39 586
+  s_ada6f29a4c5d68::t_464b7ce8c4d619 594
+  s_ada6f29a4c5d68::t_cd5cbbd19f3e32 608
+  s_ada6f29a4c5d68::t_63c8ea03dd069a 632-633
+  s_ada6f29a4c5d68::t_99718e2a789956 679-680
+  s_ada6f29a4c5d68::t_b7dc981fe130ae 699
+  s_ada6f29a4c5d68::t_fe4c53f227ef82 707
+  s_ada6f29a4c5d68::t_0a20818774c7a7 767
+  s_ada6f29a4c5d68::t_46120443550e00 774
+  s_ada6f29a4c5d68::t_4df8a709748bd6 795-796
+  s_ada6f29a4c5d68::t_d467429fa82043 840-841
+  s_ada6f29a4c5d68::t_16b1635240dae8 843-845
+  s_ada6f29a4c5d68::t_c988a1fe956796 847-848
+  s_ada6f29a4c5d68::t_63c8ef4352c2a6 851-854
+  s_ada6f29a4c5d68::t_449bfe54d8cf28 856
+  s_ada6f29a4c5d68::t_515cf629490e4d 858-862
+  s_ada6f29a4c5d68::t_4a3d0df5e64a65 864
+  s_ada6f29a4c5d68::t_af1bad609c6e0b 866-867
+  s_ada6f29a4c5d68::t_0a48f2fe978c2b 872
+  s_ada6f29a4c5d68::t_ad6bdcb3521a4a 875-876
+  s_ada6f29a4c5d68::t_b657faf123423b 880-882
+  s_ada6f29a4c5d68::t_c31be1c8991b0a 891
+  s_ada6f29a4c5d68::t_96690589a1fe4f 893-894
+  s_ada6f29a4c5d68::t_c5937e87e1f19b 896-897
+  s_ada6f29a4c5d68::t_7fe1665936fe42 919-921
+  s_ada6f29a4c5d68::t_1a747168107cc1 923-925
+  s_ada6f29a4c5d68::t_8967c3ef550f89 927-928
+  s_ada6f29a4c5d68::t_964a87fa8342f1 932-933
+  s_ada6f29a4c5d68::t_d7d1fc2051878a 936
+  s_ada6f29a4c5d68::t_6df9e12e60814a 2886
+  s_ada6f29a4c5d68::t_2cc3860f781fb8 2888
+  s_ada6f29a4c5d68::t_b82b6421e05950 3362-3364
+  s_ada6f29a4c5d68::t_c3b105fe01db65 3366-3368,3371-3373
+  s_ada6f29a4c5d68::t_90f42ecea1ecaa 3375-3377
+  s_ada6f29a4c5d68::t_af350325f8c589 3379-3380
+  s_ada6f29a4c5d68::t_b509397f09c968 3383-3386
+  s_ada6f29a4c5d68::t_1ce1f92a7737b2 3388-3389
+  s_ada6f29a4c5d68::t_ff3891a2b9aa54 3391
+  s_ada6f29a4c5d68::t_16412b86b7225d 3393-3397
+  s_ada6f29a4c5d68::t_8c34a500aa70a1 3399-3403
+  s_ada6f29a4c5d68::t_8962de86365880 3405-3410
+app/api/memory/graph/route.ts
+  s_ada6f29a4c5d68::t_53ec075a09aa66 6-63
+  s_ada6f29a4c5d68::t_9c58fdac09c751 1-5,64-96,99,103-109
+  s_ada6f29a4c5d68::t_4583d4c5a794a6 97-98,100-102
+components/chat/chat-history-modal.tsx
+  s_ada6f29a4c5d68::t_12ccd5bc291d2a 1-86
+lib/tools/setup.ts
+  s_ada6f29a4c5d68::t_80506d4fa2d110 1-12
+components/common/toaster.tsx
+  s_ada6f29a4c5d68::t_ea145a3f44dc1c 73-74
+  s_ada6f29a4c5d68::t_d92d2074878dfd 1-72,75-102
+lib/tools/registry.ts
+  s_ada6f29a4c5d68::t_b54ae916d89419 62
+  s_ada6f29a4c5d68::t_6602a790f4cf89 1-61,63-66,69-86
+  s_ada6f29a4c5d68::t_9c4a5e457e61ea 67-68
+package.json
+  s_ada6f29a4c5d68::t_994b75c08edd54 16
+lib/orchestrator/classify.ts
+  s_ada6f29a4c5d68::t_930398d1787aca 27,56,66
+bun.lock
+  s_ada6f29a4c5d68::t_509737fc9004f0 12,249-250,441-448
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a6be3363b28de06dddd8784f4912e87330be6119",
+  "prompts": {},
+  "sessions": {
+    "s_ada6f29a4c5d68": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ecfef0e80ffeBjB15yrGvZeYMc",
+        "model": "unknown"
+      },
+      "human_author": "Sundaram Kumar Jha <jhasundaram@outlook.com>"
+    }
+  }
+}
