@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { Octokit } from "@octokit/rest";
 import { createOrbitServerClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-service";
 
@@ -21,6 +20,7 @@ export async function GET() {
   if (!token) return NextResponse.json({ repos: [], error: "github not connected" });
 
   try {
+    const { Octokit } = await import("@octokit/rest");
     const octokit = new Octokit({ auth: token });
     const repos = await octokit.paginate(octokit.repos.listForAuthenticatedUser, {
       affiliation: "owner,collaborator,organization_member",

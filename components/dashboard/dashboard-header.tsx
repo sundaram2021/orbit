@@ -9,6 +9,8 @@ import { OrbitUser, OrbitActivity, Approval } from "@/types/orbit-types";
 import { getUserInitials } from "@/lib/format-helpers";
 import { ORBIT_NAV_LABELS, OrbitNav } from "./dashboard-sidebar";
 
+const UNDERSCORE_RE = /_/g;
+
 interface DashboardHeaderProps {
   user: OrbitUser | null;
   activeNav: OrbitNav;
@@ -119,7 +121,7 @@ export function DashboardHeader({ user, activeNav, onToggleSidebar }: DashboardH
               {approvals.map((a) => (
                 <div key={a.id} className="notif-item notif-approval">
                   <div>
-                    <p>Awaiting approval: {a.kind.replace(/_/g, " ")}</p>
+                    <p>Awaiting approval: {a.kind.replace(UNDERSCORE_RE, " ")}</p>
                     <small>{new Date(a.created_at ?? "").toLocaleString()}</small>
                   </div>
                   <div className="notif-item-actions">

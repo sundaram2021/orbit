@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
-import { Octokit } from "@octokit/rest";
 import { getAnthropicClient, orbitModel } from "../ai";
 import { getUserSettings } from "../orchestrator/spawn";
 import { memoryRemember } from "../memory";
@@ -43,14 +42,15 @@ const SUB_AGENT_TOOLS = [
   "create_pr",
 ];
 
-let toolsRegistered = false;
+let subAgentToolsInit: Promise<void> | null = null;
 function ensureSubAgentTools(): void {
-  if (toolsRegistered) return;
-  registerSandboxFileTools();
-  registerSandboxExecTools();
-  registerGithubTools();
-  registerWebTools();
-  toolsRegistered = true;
+  if (subAgentToolsInit) return;
+  subAgentToolsInit = (async () => {
+    registerSandboxFileTools();
+    registerSandboxExecTools();
+    registerGithubTools();
+    registerWebTools();
+  })();
 }
 
 function slugify(title: string): string {
@@ -125,13 +125,15 @@ export async function runSubAgent(
   agent.status = "running";
   const traceId = agent.trace_id ?? agentId;
 
-  const token = await getGithubToken(supabase, userId);
+  const [token, settings] = await Promise.all([
+    getGithubToken(supabase, userId),
+    getUserSettings(supabase, userId),
+  ]);
   if (!token) {
     await fail(supabase, agent, traceId, "GitHub not connected — reconnect GitHub to run agents.");
     return;
   }
 
-  const settings = await getUserSettings(supabase, userId);
   await supabase.from("sub_agents").update({ status: "running" }).eq("id", agentId);
   if (agent.event_id) {
     await supabase.from("github_events").update({ status: "running" }).eq("id", agent.event_id);
@@ -348,6 +350,7 @@ export async function runSubAgent(
     // Persist the execution log for the evaluator (ignored if v2 migration pending).
     await supabase.from("sub_agents").update({ run_log: runLogText }).eq("id", agentId);
 
+    const { Octokit } = await import("@octokit/rest");
     const octokit = new Octokit({ auth: token });
     const [o, r] = repoFull.split("/");
     const { data: repoInfo } = await octokit.repos.get({ owner: o, repo: r });
@@ -497,8 +500,9 @@ export async function runSubAgent(
   }
 }
 
+const REPO_RE = /Repo:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/;
 function extractRepo(systemPrompt: string): string | null {
-  const m = systemPrompt.match(/Repo:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/);
+  const m = REPO_RE.exec(systemPrompt);
   return m ? m[1] : null;
 }
 

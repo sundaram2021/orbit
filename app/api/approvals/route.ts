@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { Octokit } from "@octokit/rest";
 import { createOrbitServerClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-service";
 import { runSubAgent, writeResult } from "@/lib/sandbox/run";
@@ -123,6 +122,7 @@ export async function handleApprove(
         testsPassed: boolean;
         sandboxId?: string;
       };
+      const { Octokit } = await import("@octokit/rest");
       const octokit = new Octokit({ auth: token });
       const [o, r] = ref.repo.split("/");
       // Adopt: the sub-agent may already have opened a PR on this branch
@@ -184,7 +184,8 @@ export async function handleApprove(
         prNumber: number;
         sandboxId?: string;
       };
-      const octokit = new Octokit({ auth: token });
+      const { Octokit: OctokitMerge } = await import("@octokit/rest");
+      const octokit = new OctokitMerge({ auth: token });
       const [o, r] = ref.repo.split("/");
       await octokit.pulls.merge({ owner: o, repo: r, pull_number: ref.prNumber, merge_method: "squash" });
       await writeResult(svc, ref.agentId, { merged: true });
@@ -200,7 +201,8 @@ export async function handleApprove(
     case "github_comment": {
       if (!token) break;
       const ref = JSON.parse(approval.ref_id) as { repo: string; number: string; body: string };
-      const octokit = new Octokit({ auth: token });
+      const { Octokit: OctokitComment } = await import("@octokit/rest");
+      const octokit = new OctokitComment({ auth: token });
       const [o, r] = ref.repo.split("/");
       await octokit.issues.createComment({
         owner: o,

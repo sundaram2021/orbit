@@ -54,11 +54,16 @@ export async function POST(request: Request) {
     .limit(30);
 
   // Recent evaluations + pending tuning approvals as context.
-  const { data: agents } = await supabase
-    .from("sub_agents")
-    .select("id, title, kind, status, eval_score")
-    .order("created_at", { ascending: false })
-    .limit(10);
+  // async-parallel: agents query and memory recall are independent.
+  const [agentsRes, digest] = await Promise.all([
+    supabase
+      .from("sub_agents")
+      .select("id, title, kind, status, eval_score")
+      .order("created_at", { ascending: false })
+      .limit(10),
+    memoryRecall(user.id, message),
+  ]);
+  const { data: agents } = agentsRes;
   const agentIds = ((agents ?? []) as { id: string }[]).map((a) => a.id);
   let evalContext = "";
   if (agentIds.length > 0) {
@@ -70,7 +75,6 @@ export async function POST(request: Request) {
       .limit(10);
     evalContext = JSON.stringify({ agents: agents ?? [], evaluations: evals ?? [] }).slice(0, 4000);
   }
-  const digest = await memoryRecall(user.id, message);
   const system = buildEvaluatorChatPrompt({
     evalContext,
     memoryDigest: digest,
@@ -106,11 +110,21 @@ export async function POST(request: Request) {
         fullText += msg;
         send({ delta: msg });
       }
-      if (fullText) {
-        await supabase.from("chat_messages").insert([{ thread_id: threadId, role: "assistant", content: fullText }]);
-      }
       send({ done: true });
       controller.close();
+      if (fullText) {
+        const content = fullText;
+        void (async () => {
+          try {
+            const { error } = await supabase
+              .from("chat_messages")
+              .insert([{ thread_id: threadId, role: "assistant", content }]);
+            if (error) console.warn("evaluator history persist failed:", error.message);
+          } catch (err) {
+            console.warn("evaluator history persist failed:", err);
+          }
+        })();
+      }
     },
   });
 

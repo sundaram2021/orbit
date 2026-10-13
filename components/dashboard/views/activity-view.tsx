@@ -4,10 +4,24 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { GitPullRequest, Sparkles, Brain, CircleDot, Loader2, Search } from "lucide-react";
 import { OrbitActivity } from "@/types/orbit-types";
 
+const TYPE_ICON: Record<string, React.ReactNode> = {
+  pr: <GitPullRequest className="size-3.5" />,
+  sparkles: <Sparkles className="size-3.5" />,
+  brain: <Brain className="size-3.5" />,
+  issue: <CircleDot className="size-3.5" />,
+};
+
+const ACTIVITY_EMPTY = (
+  <section className="panel"><div className="panel-empty">
+    Nothing yet. Activity from agents, polls, and evaluations will stream in here.
+  </div></section>
+);
+
 export function ActivityView() {
   const [activities, setActivities] = useState<OrbitActivity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const deferredQuery = React.useDeferredValue(query);
 
   const load = useCallback(async () => {
     try {
@@ -32,7 +46,7 @@ export function ActivityView() {
   }, [load]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     if (!q) return activities;
     return activities.filter(
       (a) =>
@@ -40,21 +54,7 @@ export function ActivityView() {
         a.description.toLowerCase().includes(q) ||
         a.type.toLowerCase().includes(q)
     );
-  }, [activities, query]);
-
-  const renderIcon = (type: OrbitActivity["type"]) => {
-    switch (type) {
-      case "pr":
-        return <GitPullRequest className="size-3.5" />;
-      case "sparkles":
-        return <Sparkles className="size-3.5" />;
-      case "brain":
-        return <Brain className="size-3.5" />;
-      case "issue":
-      default:
-        return <CircleDot className="size-3.5" />;
-    }
-  };
+  }, [activities, deferredQuery]);
 
   return (
     <div>
@@ -76,32 +76,32 @@ export function ActivityView() {
         />
       </div>
 
-      {isLoading && (
+      {isLoading ? (
         <div className="chat-loading">
-          <Loader2 className="size-4 animate-spin" /> Loading activity…
+          <span className="inline-flex animate-spin"><Loader2 className="size-4" /></span> Loading activity…
         </div>
-      )}
+      ) : null}
 
-      {!isLoading && filtered.length === 0 && (
-        <section className="panel"><div className="panel-empty">
-          {activities.length === 0
-            ? "Nothing yet. Activity from agents, polls, and evaluations will stream in here."
-            : `No activity matches "${query.trim()}".`}
-        </div></section>
-      )}
+      {!isLoading && filtered.length === 0 ? (
+        activities.length === 0 ? ACTIVITY_EMPTY : (
+          <section className="panel"><div className="panel-empty">
+            {`No activity matches "${deferredQuery.trim()}".`}
+          </div></section>
+        )
+      ) : null}
 
       <section className="panel">
         <div className="activity-list activity-full">
           {filtered.map((act) => (
-            <div key={act.id} className="activity">
-              {renderIcon(act.type)}
+            <div key={act.id} className="activity" style={{ contentVisibility: "auto", containIntrinsicSize: "0 64px" }}>
+              {TYPE_ICON[act.type] ?? <CircleDot className="size-3.5" />}
               <div>
                 <p>{act.title}</p>
                 <small>
                   {act.description}
-                  {act.created_at && (
+                  {act.created_at ? (
                     <> · <span className="mono">{new Date(act.created_at).toLocaleString()}</span></>
-                  )}
+                  ) : null}
                 </small>
               </div>
             </div>

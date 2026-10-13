@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { Octokit } from "@octokit/rest";
 import { createServiceClient } from "@/lib/supabase-service";
 import { proposeAndMaybeRun } from "@/lib/orchestrator/spawn";
 
@@ -95,16 +94,25 @@ async function handlePoll(request: Request) {
     error?: string;
   }> = [];
 
-  for (const conn of connections as {
-    user_id: string;
-    provider_token: string;
-    github_username: string | null;
-  }[]) {
-    try {
-      proposed += await pollUser(supabase, conn, details);
-    } catch (err) {
-      errors.push(`${conn.user_id}: ${(err as Error).message.slice(0, 200)}`);
-    }
+  const CONCURRENCY = 5;
+  for (let i = 0; i < connections.length; i += CONCURRENCY) {
+    const batch = (connections as {
+      user_id: string;
+      provider_token: string;
+      github_username: string | null;
+    }[]).slice(i, i + CONCURRENCY);
+    await Promise.all(
+      batch.map((conn) =>
+        pollUser(supabase, conn, details).then(
+          (n) => {
+            proposed += n;
+          },
+          (err) => {
+            errors.push(`${conn.user_id}: ${(err as Error).message.slice(0, 200)}`);
+          }
+        )
+      )
+    );
   }
 
   return NextResponse.json({
@@ -131,6 +139,7 @@ async function pollUser(
     error?: string;
   }>
 ): Promise<number> {
+  const { Octokit } = await import("@octokit/rest");
   const octokit = new Octokit({ auth: conn.provider_token });
   const me =
     conn.github_username ??
@@ -367,7 +376,9 @@ async function pollUser(
   return count;
 }
 
+const REPO_FROM_URL_RE = /\/repos\/([^/]+\/[^/]+)/;
+
 function repoFromUrl(repositoryUrl: string): string {
-  const m = repositoryUrl.match(/\/repos\/([^/]+\/[^/]+)/);
+  const m = REPO_FROM_URL_RE.exec(repositoryUrl);
   return m ? m[1] : "";
 }

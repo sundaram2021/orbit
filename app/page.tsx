@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { HeroSection } from "@/components/home/hero-section";
 import { WorkflowSection } from "@/components/home/workflow-section";
 import { BentoSection } from "@/components/home/bento-section";
@@ -11,16 +12,28 @@ export const metadata = {
     "From GitHub issue to pull request. Orbit orchestrates specialized agents that build, review, and learn together.",
 };
 
-export default async function HomePage() {
+async function HeroAuth() {
   const user = await fetchServerOrbitUser();
-  const isAuthenticated = user !== null;
+  return <HeroSection isAuthenticated={user !== null} />;
+}
+
+async function FooterAuth() {
+  const user = await fetchServerOrbitUser();
+  return <FooterStage isAuthenticated={user !== null} />;
+}
+
+export default function HomePage() {
   return (
     <main className="stages-container">
-      <HeroSection isAuthenticated={isAuthenticated} />
+      <Suspense fallback={<div className="hero-loading">Loading…</div>}>
+        <HeroAuth />
+      </Suspense>
       <WorkflowSection />
       <BentoSection />
       <StepsSection />
-      <FooterStage isAuthenticated={isAuthenticated} />
+      <Suspense fallback={null}>
+        <FooterAuth />
+      </Suspense>
     </main>
   );
 }

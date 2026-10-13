@@ -46,16 +46,30 @@ export function OrchestratorStatus() {
         ? (((await sRes.json()) as { settings: UserSettings }).settings)
         : null;
       const today = new Date().toISOString().slice(0, 10);
-      const scores = evals.map((e) => Number(e.score)).filter((n) => !Number.isNaN(n));
+      let awaiting = 0;
+      let running = 0;
+      let completedToday = 0;
+      for (const a of agents) {
+        if (a.status === "awaiting_approval") awaiting++;
+        else if (a.status === "running") running++;
+        else if (a.status === "completed" && (a.created_at ?? "").slice(0, 10) === today) completedToday++;
+      }
+      let scoreSum = 0;
+      let scoreCount = 0;
+      for (const e of evals) {
+        const n = Number(e.score);
+        if (!Number.isNaN(n)) {
+          scoreSum += n;
+          scoreCount++;
+        }
+      }
       const lastEventAt = events[0]?.created_at ?? null;
       setData({
-        awaiting: agents.filter((a) => a.status === "awaiting_approval").length,
-        running: agents.filter((a) => a.status === "running").length,
-        completedToday: agents.filter(
-          (a) => a.status === "completed" && (a.created_at ?? "").slice(0, 10) === today
-        ).length,
-        avgScore: scores.length
-          ? Math.round((scores.reduce((s, v) => s + v, 0) / scores.length) * 10) / 10
+        awaiting,
+        running,
+        completedToday,
+        avgScore: scoreCount
+          ? Math.round((scoreSum / scoreCount) * 10) / 10
           : 0,
         lastEventAt,
         stale: lastEventAt

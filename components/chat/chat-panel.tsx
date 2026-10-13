@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   SendHorizontal,
   Square,
@@ -134,9 +134,13 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     el.style.height = `${Math.min(160, Math.max(44, el.scrollHeight))}px`;
   }, []);
 
-  useEffect(() => {
-    autogrow();
-  }, [input, autogrow]);
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setInput(e.target.value);
+      autogrow();
+    },
+    [autogrow]
+  );
 
   useEffect(() => {
     if (kind !== "orchestrator") return;
@@ -285,16 +289,27 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
 
   const isLanding = messages.length === 0 && !isLoading;
   const hasRepo = kind === "orchestrator" && !!activeRepo;
+  const lastAssistantIdx = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") return i;
+    }
+    return -1;
+  }, [messages]);
 
-  const filteredPicker = pickerQuery.trim()
-    ? pickerItems.filter(
-        (i) =>
-          i.title.toLowerCase().includes(pickerQuery.toLowerCase()) ||
-          String(i.number).includes(pickerQuery.trim())
-      )
-    : pickerItems;
+  const filteredPicker = useMemo(() => {
+    const q = pickerQuery.trim().toLowerCase();
+    if (!q) return pickerItems;
+    return pickerItems.filter(
+      (i) => i.title.toLowerCase().includes(q) || String(i.number).includes(q)
+    );
+  }, [pickerItems, pickerQuery]);
 
-  const repoSelector = kind === "orchestrator" && (
+  const selectedKeys = useMemo(
+    () => new Set(attachments.map((a) => `${a.type}:${a.number}`)),
+    [attachments]
+  );
+
+  const repoSelector = kind === "orchestrator" ? (
     <div className="orbit-repo" ref={repoBoxRef}>
       <button
         type="button"
@@ -335,9 +350,9 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
         </div>
       )}
     </div>
-  );
+  ) : null;
 
-  const attachmentChips = attachments.length > 0 && (
+  const attachmentChips = attachments.length > 0 ? (
     <div className="orbit-files">
       {attachments.map((a, i) => (
         <span key={`${a.type}-${a.number ?? a.name}-${i}`} className="orbit-file">
@@ -366,10 +381,10 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
         </span>
       ))}
     </div>
-  );
+  ) : null;
 
   // "+" menu inside the composer: upload file always; issue/PR only when a repo is picked.
-  const plusMenu = kind === "orchestrator" && (
+  const plusMenu = kind === "orchestrator" ? (
     <div className="orbit-plus" ref={plusBoxRef}>
       <button
         type="button"
@@ -449,9 +464,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
                 )}
                 {filteredPicker.map((item) => {
                   const type = pickerTab === "issues" ? "issue" : "pr";
-                  const selected = attachments.some(
-                    (a) => a.type === type && a.number === item.number
-                  );
+                  const selected = selectedKeys.has(`${type}:${item.number}`);
                   return (
                     <button
                       key={item.number}
@@ -496,7 +509,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
       )}
       <input ref={fileRef} type="file" hidden onChange={handleFilePicked} accept="image/*,.txt,.md,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.yml,.yaml" />
     </div>
-  );
+  ) : null;
 
   const composer = (
     <div className="orbit-composer-zone">
@@ -508,7 +521,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
           ref={inputRef}
           rows={1}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInputChange}
           onKeyDown={onKeyDown}
           onPaste={handlePaste}
           placeholder={
@@ -550,9 +563,9 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
           {activeRepo ? `Working in ${activeRepo}` : "Orchestrator ready"}
         </div>
         <h2>{greeting}</h2>
-        {kind === "orchestrator" && !activeRepo && (
+        {kind === "orchestrator" && !activeRepo ? (
           <p className="orbit-landing-sub">Pick a repository below, then describe the task.</p>
-        )}
+        ) : null}
         <div className="orbit-landing-box">
           {kind === "orchestrator" && (
             <div className="orbit-landing-repo">{repoSelector}</div>
@@ -579,8 +592,6 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     );
   }
 
-  const lastAssistantIdx = messages.map((m) => m.role).lastIndexOf("assistant");
-
   return (
     <section className="orbit-thread" aria-label={title}>
       <div className="orbit-thread-bar">
@@ -599,23 +610,24 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
       </div>
 
       <div className="orbit-scroll">
-        {isLoading && (
+        {isLoading ? (
           <div className="orbit-loading">
-            <Loader2 className="size-4 animate-spin" /> Loading conversation…
+            <span className="inline-flex animate-spin"><Loader2 className="size-4" /></span> Loading conversation…
           </div>
-        )}
+        ) : null}
         {messages.map((m, mi) =>
           m.role === "user" ? (
-            <div key={m.id} className="orbit-user-row">
+            <div key={m.id} className="orbit-user-row" style={{ contentVisibility: "auto", containIntrinsicSize: "0 120px" }}>
               <div className="orbit-user-bubble">
                 <div className="orbit-user-lines">
                   {m.content.split("\n").map((line, i) => {
                     const trimmed = line.trim();
+                    if (!trimmed.endsWith("]") || trimmed.length > 120)
+                      return <p key={i}>{line || " "}</p>;
                     if (
-                      (trimmed.startsWith("[issue #") ||
-                        trimmed.startsWith("[pr #") ||
-                        trimmed.startsWith("[file ")) &&
-                      trimmed.endsWith("]")
+                      trimmed.startsWith("[issue #") ||
+                      trimmed.startsWith("[pr #") ||
+                      trimmed.startsWith("[file ")
                     ) {
                       return (
                         <span key={i} className="orbit-ref-chip">
@@ -633,7 +645,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
               </span>
             </div>
           ) : (
-            <div key={m.id} className="orbit-ai-row">
+            <div key={m.id} className="orbit-ai-row" style={{ contentVisibility: "auto", containIntrinsicSize: "0 120px" }}>
               <span className="orbit-avatar orbit-avatar-ai" aria-hidden="true">
                 <Bot className="size-4" />
               </span>
@@ -659,12 +671,12 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
                     activeStep={activeStep || "Orchestrator is reasoning and analyzing repository..."}
                   />
                 ) : null}
-                {isStreaming && mi === messages.length - 1 && activeStep && m.content && (
+                {isStreaming && mi === messages.length - 1 && activeStep && m.content ? (
                   <div className="orbit-now">
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <span className="inline-flex animate-spin"><Loader2 className="size-3.5" /></span>
                     <span>{activeStep}</span>
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           )
@@ -678,12 +690,12 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
         {kind === "orchestrator" && <ApprovalCards />}
         <div className="orbit-toolbar">
           {repoSelector}
-          {isStreaming && activeStep && (
+          {isStreaming && activeStep ? (
             <span className="orbit-toolbar-live" title={activeStep}>
-              <Loader2 className="size-3 animate-spin" />
+              <span className="inline-flex animate-spin"><Loader2 className="size-3" /></span>
               {activeStep.slice(0, 60)}
             </span>
-          )}
+          ) : null}
         </div>
         {composer}
       </div>

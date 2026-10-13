@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -34,6 +34,10 @@ interface ChatStepsProps {
   defaultOpen?: boolean;
 }
 
+const UNDERSCORE_RE = /_/g;
+
+const TOOL_META_CACHE = new Map<string, { icon: React.ReactNode; name: string }>();
+
 function toolMeta(tool: string): { icon: React.ReactNode; name: string } {
   const t = tool.toLowerCase();
   if (t.includes("spawn")) return { icon: <Cpu className="size-3.5" />, name: "Sub-agent" };
@@ -50,20 +54,36 @@ function toolMeta(tool: string): { icon: React.ReactNode; name: string } {
   if (t.includes("memory")) return { icon: <Brain className="size-3.5" />, name: "Memory" };
   if (t.includes("running") || t.includes("agent")) return { icon: <Radar className="size-3.5" />, name: "Agents" };
   if (t.includes("search")) return { icon: <Search className="size-3.5" />, name: "Search" };
-  return { icon: <Wrench className="size-3.5" />, name: tool.replace(/_/g, " ") };
+  return { icon: <Wrench className="size-3.5" />, name: tool.replace(UNDERSCORE_RE, " ") };
+}
+
+function cachedToolMeta(tool: string): { icon: React.ReactNode; name: string } {
+  const hit = TOOL_META_CACHE.get(tool);
+  if (hit) return hit;
+  const meta = toolMeta(tool);
+  if (TOOL_META_CACHE.size > 200) TOOL_META_CACHE.clear();
+  TOOL_META_CACHE.set(tool, meta);
+  return meta;
 }
 
 export function ChatSteps({ steps, isLive = false, activeStep = null, defaultOpen }: ChatStepsProps) {
-  const running = steps.filter((s) => s.status === "running");
+  const { runningCount, doneCount, errorCount } = useMemo(() => {
+    let running = 0;
+    let done = 0;
+    let error = 0;
+    for (const s of steps) {
+      if (s.status === "running") running++;
+      else if (s.status === "done") done++;
+      else if (s.status === "error") error++;
+    }
+    return { runningCount: running, doneCount: done, errorCount: error };
+  }, [steps]);
   const [expanded, setExpanded] = useState<boolean | null>(null);
   // While streaming the timeline stays open so the user sees live activity;
   // otherwise the newest message starts open and older ones start collapsed.
   const isOpen = isLive ? true : (expanded ?? defaultOpen ?? steps.length <= 4);
 
   if ((!steps || steps.length === 0) && !activeStep) return null;
-
-  const doneCount = steps.filter((s) => s.status === "done").length;
-  const errorCount = steps.filter((s) => s.status === "error").length;
 
   return (
     <div className={`orbit-timeline ${isLive ? "orbit-timeline-live" : ""}`} aria-label="Agent activity">
@@ -74,7 +94,7 @@ export function ChatSteps({ steps, isLive = false, activeStep = null, defaultOpe
         aria-expanded={isOpen}
       >
         <span className="orbit-timeline-head-left">
-          {running.length > 0 || (isLive && activeStep) ? (
+          {runningCount > 0 || (isLive && activeStep) ? (
             <span className="orbit-live-badge">
               <span className="orbit-live-dot" />
               Working
@@ -86,8 +106,8 @@ export function ChatSteps({ steps, isLive = false, activeStep = null, defaultOpe
             </span>
           )}
           <span className="orbit-timeline-summary">
-            {running.length > 0
-              ? `${running.length} running · ${doneCount} done`
+            {runningCount > 0
+              ? `${runningCount} running · ${doneCount} done`
               : errorCount > 0
                 ? `${steps.length} steps · ${errorCount} failed`
                 : `${steps.length} ${steps.length === 1 ? "step" : "steps"}`}
@@ -101,7 +121,7 @@ export function ChatSteps({ steps, isLive = false, activeStep = null, defaultOpe
       {isOpen && (
         <ol className="orbit-timeline-list">
           {steps.map((step, idx) => {
-            const meta = toolMeta(step.tool);
+            const meta = cachedToolMeta(step.tool);
             const isLast = idx === steps.length - 1 && !activeStep;
             return (
               <li
@@ -111,7 +131,7 @@ export function ChatSteps({ steps, isLive = false, activeStep = null, defaultOpe
                 <span className="orbit-rail" aria-hidden="true">
                   <span className="orbit-rail-dot">
                     {step.status === "running" ? (
-                      <Loader2 className="size-3 animate-spin" />
+                      <span className="inline-flex animate-spin"><Loader2 className="size-3" /></span>
                     ) : step.status === "error" ? (
                       <AlertCircle className="size-3" />
                     ) : (
@@ -139,7 +159,7 @@ export function ChatSteps({ steps, isLive = false, activeStep = null, defaultOpe
             <li className="orbit-timeline-item orbit-timeline-running">
               <span className="orbit-rail" aria-hidden="true">
                 <span className="orbit-rail-dot">
-                  <Loader2 className="size-3 animate-spin" />
+                  <span className="inline-flex animate-spin"><Loader2 className="size-3" /></span>
                 </span>
               </span>
               <div className="orbit-timeline-body">
@@ -165,7 +185,7 @@ export function ChatLiveIndicator({ activeStep }: { activeStep: string }) {
   return (
     <div className="orbit-thinking" role="status" aria-live="polite">
       <span className="orbit-thinking-spinner">
-        <Loader2 className="size-4 animate-spin" />
+        <span className="inline-flex animate-spin"><Loader2 className="size-4" /></span>
       </span>
       <div className="orbit-thinking-body">
         <span className="orbit-thinking-tag">

@@ -3,8 +3,40 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ChatMessage, ChatKind } from "@/types/orbit-types";
 
-const ACTIVE_REPO_KEY = "orbit-active-repo";
-const ACTIVE_THREAD_KEY = "orbit-thread-id";
+const STORAGE_VERSION = "v1";
+const REPO_KEY = `orbit:${STORAGE_VERSION}:repo`;
+const THREAD_KEY = `orbit:${STORAGE_VERSION}:thread`;
+const LEGACY_REPO_KEY = "orbit-active-repo";
+const LEGACY_THREAD_KEY = "orbit-thread-id";
+
+function readStorage(key: string, legacyKey?: string): string | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw != null) {
+      // New envelope: {"v":1,"value":"..."}; bare strings accepted for compat.
+      try {
+        const parsed = JSON.parse(raw) as { v?: number; value?: unknown };
+        if (parsed && parsed.v === 1 && typeof parsed.value === "string") return parsed.value;
+        if (typeof parsed === "string") return parsed;
+      } catch {
+        return raw;
+      }
+      return raw;
+    }
+    if (legacyKey) return localStorage.getItem(legacyKey);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, JSON.stringify({ v: 1, value }));
+  } catch {
+    // storage unavailable
+  }
+}
 
 export interface ChatThread {
   id: string;
@@ -58,11 +90,11 @@ export function useChat(kind: ChatKind) {
   useEffect(() => {
     // Intentional: hydrate persisted repo/thread on mount.
     try {
-      const saved = localStorage.getItem(ACTIVE_REPO_KEY) ?? "";
+      const saved = readStorage(REPO_KEY, LEGACY_REPO_KEY) ?? "";
       activeRepoRef.current = saved;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveRepoState(saved);
-      threadIdRef.current = localStorage.getItem(ACTIVE_THREAD_KEY);
+      threadIdRef.current = readStorage(THREAD_KEY, LEGACY_THREAD_KEY);
     } catch {
       // storage unavailable
     }
@@ -72,8 +104,8 @@ export function useChat(kind: ChatKind) {
     activeRepoRef.current = repo;
     setActiveRepoState(repo);
     try {
-      if (repo) localStorage.setItem(ACTIVE_REPO_KEY, repo);
-      else localStorage.removeItem(ACTIVE_REPO_KEY);
+      if (repo) writeStorage(REPO_KEY, repo);
+      else localStorage.removeItem(REPO_KEY);
     } catch {
       // storage unavailable
     }
@@ -117,8 +149,8 @@ export function useChat(kind: ChatKind) {
       threadIdRef.current = id;
       setThreadIdState(id);
       try {
-        if (id) localStorage.setItem(ACTIVE_THREAD_KEY, id);
-        else localStorage.removeItem(ACTIVE_THREAD_KEY);
+        if (id) writeStorage(THREAD_KEY, id);
+        else localStorage.removeItem(THREAD_KEY);
       } catch {
         // storage unavailable
       }

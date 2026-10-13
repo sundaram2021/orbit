@@ -109,7 +109,7 @@ export function Toaster() {
       window.removeEventListener("orbit:refresh", onRefresh);
       window.removeEventListener("orbit:toast", onDirectToast);
     };
-  }, [check, push]);
+  }, [check]);
 
   if (toasts.length === 0) return null;
 

@@ -1,9 +1,5 @@
-import {
-  fetchServerOrbitUser,
-  fetchServerTasks,
-  fetchServerActivities,
-  fetchServerRepositories,
-} from "@/lib/supabase-server-helpers";
+import { Suspense } from "react";
+import { fetchServerOrbitUser } from "@/lib/supabase-server-helpers";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 
 export const metadata = {
@@ -12,20 +8,15 @@ export const metadata = {
     "Your Orbit workspace: orchestrate agents, follow tasks, and explore evaluation traces.",
 };
 
-export default async function DashboardPage() {
-  const [user, tasks, activities, repositories] = await Promise.all([
-    fetchServerOrbitUser(),
-    fetchServerTasks(),
-    fetchServerActivities(),
-    fetchServerRepositories(),
-  ]);
+async function DashboardContent() {
+  const user = await fetchServerOrbitUser();
+  return <DashboardView initialUser={user} />;
+}
 
+export default function DashboardPage() {
   return (
-    <DashboardView
-      initialUser={user}
-      initialTasks={tasks}
-      initialActivities={activities}
-      initialRepositories={repositories}
-    />
+    <Suspense fallback={<div className="dash-loading">Loading workspace…</div>}>
+      <DashboardContent />
+    </Suspense>
   );
 }

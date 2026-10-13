@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { signInWithGithubOAuth, signOutGithubUser } from "@/lib/github-helpers";
 import { OrbitUser } from "@/types/orbit-types";
 
@@ -9,7 +9,7 @@ export function useAuth(initialUser: OrbitUser | null = null) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loginWithGithub = async () => {
+  const loginWithGithub = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -19,11 +19,20 @@ export function useAuth(initialUser: OrbitUser | null = null) {
       setError(message);
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     setIsLoading(true);
     try {
+      try {
+        localStorage.removeItem("orbit:v1:repo");
+        localStorage.removeItem("orbit:v1:thread");
+        // Legacy keys (pre-v1) — best-effort cleanup.
+        localStorage.removeItem("orbit-active-repo");
+        localStorage.removeItem("orbit-thread-id");
+      } catch {
+        // storage unavailable
+      }
       await signOutGithubUser();
       setUser(null);
       window.location.href = "/login";
@@ -32,7 +41,7 @@ export function useAuth(initialUser: OrbitUser | null = null) {
       setError(message);
       setIsLoading(false);
     }
-  };
+  }, []);
 
   return {
     user,

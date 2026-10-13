@@ -12,13 +12,14 @@ import { registerWebTools } from "@/lib/tools/web";
 
 import { buildOrchestratorSystemPrompt } from "@/lib/orchestrator/system-prompt";
 
-let orchestratorToolsRegistered = false;
+let orchestratorToolsInit: Promise<void> | null = null;
 function ensureOrchestratorTools(): void {
-  if (orchestratorToolsRegistered) return;
-  registerOrchestratorTools();
-  registerGithubTools();
-  registerWebTools();
-  orchestratorToolsRegistered = true;
+  if (orchestratorToolsInit) return;
+  orchestratorToolsInit = (async () => {
+    registerOrchestratorTools();
+    registerGithubTools();
+    registerWebTools();
+  })();
 }
 
 export const maxDuration = 120;
@@ -142,22 +143,26 @@ export async function POST(request: Request) {
   ]
     .filter(Boolean)
     .join("\n");
-  await supabase.from("chat_messages").insert([{ thread_id: threadId, role: "user", content: userStoredContent }]);
-  // Touch recency + auto-title untitled threads from the first message.
-  await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
+  await Promise.all([
+    supabase.from("chat_messages").insert([{ thread_id: threadId, role: "user", content: userStoredContent }]),
+    // Touch recency + auto-title untitled threads from the first message.
+    supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId),
+  ]);
   const { data: threadRow } = await supabase.from("chat_threads").select("title").eq("id", threadId).single();
   if ((threadRow as { title?: string } | null)?.title === "New conversation") {
     await supabase.from("chat_threads").update({ title: titleFor(message) }).eq("id", threadId);
   }
 
-  const { data: history } = await supabase
-    .from("chat_messages")
-    .select("role, content")
-    .eq("thread_id", threadId)
-    .order("created_at", { ascending: true })
-    .limit(30);
-
-  const digest = await memoryRecall(userId, userStoredContent);
+  const [historyRes, digest] = await Promise.all([
+    supabase
+      .from("chat_messages")
+      .select("role, content")
+      .eq("thread_id", threadId)
+      .order("created_at", { ascending: true })
+      .limit(30),
+    memoryRecall(userId, userStoredContent),
+  ]);
+  const { data: history } = historyRes;
   const svc = createServiceClient();
 
   // Pre-fetch every attached issue/PR body so the orchestrator can write a
@@ -549,19 +554,32 @@ export async function POST(request: Request) {
         send({ delta: msg });
       }
 
-      if (fullText) {
-        try {
-          await supabase
-            .from("chat_messages")
-            .insert([{ thread_id: threadId, role: "assistant", content: fullText, steps: executedSteps }]);
-        } catch {
-          // Older DBs without the steps column — fall back to content-only.
-          await supabase.from("chat_messages").insert([{ thread_id: threadId, role: "assistant", content: fullText }]);
-        }
-        void memoryRemember(userId, `Orchestrator chat: user asked "${userStoredContent.slice(0, 200)}", assistant replied "${fullText.slice(0, 300)}".`);
-      }
       send({ done: true, steps: executedSteps });
       controller.close();
+      if (fullText) {
+        const content = fullText;
+        const steps = executedSteps;
+        void (async () => {
+          try {
+            const { error } = await supabase
+              .from("chat_messages")
+              .insert([{ thread_id: threadId, role: "assistant", content, steps }]);
+            if (error) {
+              // Older DBs without the steps column — fall back to content-only.
+              await supabase.from("chat_messages").insert([{ thread_id: threadId, role: "assistant", content }]);
+            }
+          } catch {
+            // Non-fatal, stream already closed.
+          }
+        })();
+        void (async () => {
+          try {
+            await memoryRemember(userId, `Orchestrator chat: user asked "${userStoredContent.slice(0, 200)}", assistant replied "${content.slice(0, 300)}".`);
+          } catch (err) {
+            console.warn("memoryRemember failed:", err);
+          }
+        })();
+      }
     },
   });
 

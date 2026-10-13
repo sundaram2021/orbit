@@ -18,6 +18,7 @@ export function PromptsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const deferredQuery = React.useDeferredValue(query);
 
   useEffect(() => {
     fetch("/api/prompts")
@@ -28,7 +29,7 @@ export function PromptsView() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     if (!q) return prompts;
     return prompts.filter(
       (p) =>
@@ -36,7 +37,7 @@ export function PromptsView() {
         p.kind.toLowerCase().includes(q) ||
         p.system_prompt.toLowerCase().includes(q)
     );
-  }, [prompts, query]);
+  }, [prompts, deferredQuery]);
 
   return (
     <div>

@@ -92,15 +92,16 @@ export async function proposeAndMaybeRun(
   supabase: SupabaseClient,
   input: ProposalInput
 ): Promise<{ agentId: string; autoStarted: boolean }> {
-  const settings = await getUserSettings(supabase, input.userId);
-
-  const classification = await classifyWork({
-    source: input.source,
-    repo: input.repo,
-    number: input.number,
-    title: input.title,
-    body: input.body,
-  });
+  const [settings, classification] = await Promise.all([
+    getUserSettings(supabase, input.userId),
+    classifyWork({
+      source: input.source,
+      repo: input.repo,
+      number: input.number,
+      title: input.title,
+      body: input.body,
+    }),
+  ]);
 
   const memoryDigest = await memoryRecall(
     input.userId,

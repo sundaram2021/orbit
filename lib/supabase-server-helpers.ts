@@ -1,7 +1,8 @@
+import { cache } from "react";
 import { createOrbitServerClient } from "./supabase-server";
 import { OrbitTask, OrbitActivity, OrbitRepo, OrbitUser } from "@/types/orbit-types";
 
-export async function fetchServerOrbitUser(): Promise<OrbitUser | null> {
+export const fetchServerOrbitUser = cache(async (): Promise<OrbitUser | null> => {
   try {
     const supabase = await createOrbitServerClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -19,25 +20,26 @@ export async function fetchServerOrbitUser(): Promise<OrbitUser | null> {
     console.warn("Could not fetch server user:", err);
     return null;
   }
-}
+});
 
-export async function fetchServerTasks(): Promise<OrbitTask[]> {
+export const fetchServerTasks = cache(async (): Promise<OrbitTask[]> => {
   try {
     const supabase = await createOrbitServerClient();
     const { data, error } = await supabase
       .from("tasks")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("id,title,status,kind,created_at,updated_at")
+      .order("created_at", { ascending: false })
+      .limit(50);
 
     if (error || !data) return [];
-    return data as OrbitTask[];
+    return data as unknown as OrbitTask[];
   } catch (err) {
     console.warn("Could not fetch server tasks:", err);
     return [];
   }
-}
+});
 
-export async function fetchServerActivities(): Promise<OrbitActivity[]> {
+export const fetchServerActivities = cache(async (): Promise<OrbitActivity[]> => {
   try {
     const supabase = await createOrbitServerClient();
     const {
@@ -46,30 +48,32 @@ export async function fetchServerActivities(): Promise<OrbitActivity[]> {
     if (!user) return [];
     const { data, error } = await supabase
       .from("activities")
-      .select("*")
+      .select("id,title,description,type,created_at")
       .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(50);
 
     if (error || !data) return [];
-    return data as OrbitActivity[];
+    return data as unknown as OrbitActivity[];
   } catch (err) {
     console.warn("Could not fetch server activities:", err);
     return [];
   }
-}
+});
 
-export async function fetchServerRepositories(): Promise<OrbitRepo[]> {
+export const fetchServerRepositories = cache(async (): Promise<OrbitRepo[]> => {
   try {
     const supabase = await createOrbitServerClient();
     const { data, error } = await supabase
       .from("repositories")
-      .select("*")
-      .order("created_at", { ascending: true });
+      .select("id,full_name,html_url,private,updated_at")
+      .order("created_at", { ascending: true })
+      .limit(50);
 
     if (error || !data) return [];
-    return data as OrbitRepo[];
+    return data as unknown as OrbitRepo[];
   } catch (err) {
     console.warn("Could not fetch server repositories:", err);
     return [];
   }
-}
+});

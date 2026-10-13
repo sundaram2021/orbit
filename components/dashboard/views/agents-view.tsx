@@ -7,6 +7,18 @@ import { AgentCard } from "../agent-card";
 
 type StatusFilter = "all" | SubAgent["status"];
 
+const UNDERSCORE_RE = /_/g;
+
+const NO_AGENTS_EMPTY = (
+  <section className="panel"><div className="panel-empty">
+    No sub-agents yet. Ask the orchestrator for work or wait for the next GitHub poll.
+  </div></section>
+);
+
+const NO_MATCH_EMPTY = (
+  <section className="panel"><div className="panel-empty">No agents match this filter.</div></section>
+);
+
 const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "awaiting_approval", label: "Needs approval" },
@@ -21,6 +33,7 @@ export function AgentsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const deferredQuery = React.useDeferredValue(query);
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +55,8 @@ export function AgentsView() {
       setIsLoading(false);
     }
   }, []);
+
+  const handleChanged = useCallback(() => void load(), [load]);
 
   useEffect(() => {
     void load();
@@ -67,7 +82,7 @@ export function AgentsView() {
   }, [agents]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     return agents.filter((a) => {
       if (filter !== "all" && a.status !== filter) return false;
       if (!q) return true;
@@ -75,11 +90,11 @@ export function AgentsView() {
       return (
         a.title.toLowerCase().includes(q) ||
         a.kind.toLowerCase().includes(q) ||
-        a.status.replace(/_/g, " ").includes(q) ||
+        a.status.replace(UNDERSCORE_RE, " ").includes(q) ||
         repo.includes(q)
       );
     });
-  }, [agents, query, filter]);
+  }, [agents, deferredQuery, filter]);
 
   const running = counts.running;
 
@@ -121,23 +136,17 @@ export function AgentsView() {
         />
       </div>
 
-      {isLoading && (
+      {isLoading ? (
         <div className="chat-loading">
-          <Loader2 className="size-4 animate-spin" /> Loading agents…
+          <span className="inline-flex animate-spin"><Loader2 className="size-4" /></span> Loading agents…
         </div>
-      )}
+      ) : null}
 
-      {!isLoading && filtered.length === 0 && (
-        <section className="panel"><div className="panel-empty">
-          {agents.length === 0
-            ? "No sub-agents yet. Ask the orchestrator for work or wait for the next GitHub poll."
-            : "No agents match this filter."}
-        </div></section>
-      )}
+      {!isLoading && filtered.length === 0 ? (agents.length === 0 ? NO_AGENTS_EMPTY : NO_MATCH_EMPTY) : null}
 
       <div className="agent-list">
         {filtered.map((a) => (
-          <AgentCard key={a.id} agent={a} evaluation={evals[a.id]} onChanged={() => void load()} />
+          <AgentCard key={a.id} agent={a} evaluation={evals[a.id]} onChanged={handleChanged} />
         ))}
       </div>
     </div>
