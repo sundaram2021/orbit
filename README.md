@@ -1,3 +1,5 @@
+
+https://github.com/user-attachments/assets/fcb1b83a-ad4d-4bb9-9bf7-cb9454c91b4a
 # Orbit
 
 > An open-source autonomous multi-agent software factory that orchestrates specialized AI agents from GitHub issue intake to tested pull requests.
@@ -5,6 +7,16 @@
 Orbit continuously monitors your GitHub repositories, classifies incoming issues and pull requests, and orchestrates specialized sub-agents (implementation, code review, automated testing) running in isolated sandbox environments. It features persistent shared memory, rigorous evaluation quality gates, and a real-time command dashboard.
 
 ---
+## Demo
+
+
+
+
+
+
+https://github.com/user-attachments/assets/b36434e8-c3f3-4e15-bba1-0e44eeab4639
+
+
 
 ## ✨ Features
 
