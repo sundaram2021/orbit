@@ -22,16 +22,32 @@ async function FooterAuth() {
   return <FooterStage isAuthenticated={user !== null} />;
 }
 
+function HeroSkeleton() {
+  return (
+    <section aria-busy="true" aria-label="Loading" className="hero">
+      <div className="animate-pulse rounded-md bg-muted/40 h-[320px] w-full" aria-hidden="true" />
+    </section>
+  );
+}
+
+function FooterSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading" className="space-y-2 p-6">
+      <div className="animate-pulse rounded-md bg-muted/40 h-6 w-1/4 mx-auto" aria-hidden="true" />
+    </div>
+  );
+}
+
 export default function HomePage() {
   return (
     <main className="stages-container">
-      <Suspense fallback={<div className="hero-loading">Loading…</div>}>
+      <Suspense fallback={<HeroSkeleton />}>
         <HeroAuth />
       </Suspense>
       <WorkflowSection />
       <BentoSection />
       <StepsSection />
-      <Suspense fallback={null}>
+      <Suspense fallback={<FooterSkeleton />}>
         <FooterAuth />
       </Suspense>
     </main>

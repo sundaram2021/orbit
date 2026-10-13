@@ -79,8 +79,9 @@ export function Toaster() {
       }
       primed.current = true;
       for (const t of fresh.slice(0, 3)) push(t);
-    } catch {
-      // toasts must never break the page
+    } catch (err) {
+      // toasts must never break the page — but log so a dead poller is visible
+      console.warn("toaster poll failed:", err);
     }
   }, [push]);
 

@@ -37,8 +37,8 @@ export async function fetchAgentDiff(opts: {
   base: string;
 }): Promise<{ diffStat: string; diff: string }> {
   const [o, r] = opts.repo.split("/");
-  const { Octokit } = await import("@octokit/rest");
-  const octokit = new Octokit({ auth: opts.token });
+  const { createOctokit } = await import("../octokit");
+  const octokit = await createOctokit(opts.token);
   try {
     const cmp = await octokit.repos.compareCommits({
       owner: o,

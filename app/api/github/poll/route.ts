@@ -65,7 +65,15 @@ async function handlePoll(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const supabase = createServiceClient();
+  let supabase: ReturnType<typeof createServiceClient>;
+  try {
+    supabase = createServiceClient();
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Server misconfigured: ${(err as Error).message}`, retryable: false },
+      { status: 503 }
+    );
+  }
   let query = supabase
     .from("github_connections")
     .select("user_id, provider_token, github_username");
@@ -75,8 +83,14 @@ async function handlePoll(request: Request) {
     query = query.eq("user_id", sessionUserId);
   }
 
-  const { data: connections } = await query;
+  const { data: connections, error: connError } = await query;
 
+  if (connError) {
+    return NextResponse.json(
+      { error: "Couldn't load GitHub connections. Retry.", retryable: true },
+      { status: 503 }
+    );
+  }
   if (!connections || connections.length === 0) {
     return NextResponse.json({ ok: true, users: 0, proposed: 0 });
   }
@@ -139,11 +153,41 @@ async function pollUser(
     error?: string;
   }>
 ): Promise<number> {
-  const { Octokit } = await import("@octokit/rest");
-  const octokit = new Octokit({ auth: conn.provider_token });
-  const me =
-    conn.github_username ??
-    (await octokit.users.getAuthenticated()).data.login;
+  const { createOctokit, isGithubAuthError, githubErrorMessage } = await import("@/lib/octokit");
+  const octokit = await createOctokit(conn.provider_token);
+  let me = conn.github_username;
+  if (!me) {
+    try {
+      me = (await octokit.users.getAuthenticated()).data.login;
+    } catch (err) {
+      if (isGithubAuthError(err)) {
+        // Revoked/expired token: tell the user to reconnect instead of
+        // silently erroring on every poll.
+        try {
+          await supabase.from("activities").insert([
+            {
+              user_id: conn.user_id,
+              title: "GitHub connection expired",
+              description: "Orbit couldn't reach GitHub with your token. Reconnect GitHub in settings to resume polling.",
+              type: "event",
+            },
+          ]);
+        } catch {
+          // notification is best-effort
+        }
+        details.push({
+          user_id: conn.user_id,
+          type: "auth",
+          repo: "",
+          number: null,
+          outcome: "failed",
+          error: githubErrorMessage(err),
+        });
+        return 0;
+      }
+      throw err;
+    }
+  }
 
   interface RawItem {
     id: number;

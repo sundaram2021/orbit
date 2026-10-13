@@ -135,7 +135,7 @@ export async function evaluateAgent(
     rubric[d] = Number.isFinite(v) ? Math.max(0, Math.min(25, Math.round(v))) : 0;
   }
 
-  const { data: evaluation } = await supabase
+  const { data: evaluation, error: evalInsertError } = await supabase
     .from("evaluations")
     .insert([
       {
@@ -149,9 +149,15 @@ export async function evaluateAgent(
     ])
     .select("id")
     .single();
+  if (evalInsertError) {
+    console.warn("evaluation insert failed:", evalInsertError.message);
+  }
   const evaluationId = (evaluation as { id?: string } | null)?.id;
 
-  await supabase.from("sub_agents").update({ eval_score: score }).eq("id", agentId);
+  const { error: scoreError } = await supabase.from("sub_agents").update({ eval_score: score }).eq("id", agentId);
+  if (scoreError) {
+    console.warn("eval_score update failed:", scoreError.message);
+  }
 
   // Global memory update: result + mistakes so future runs avoid repeats.
   const lesson = mistakes ? ` Mistakes to avoid next time: ${mistakes}` : "";

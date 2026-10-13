@@ -19,6 +19,11 @@ export async function GET(request: Request) {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) return NextResponse.json({ activities: [], error: error.message });
+  if (error) {
+    return NextResponse.json(
+      { activities: [], error: "Couldn't load activity. Retry.", retryable: true },
+      { status: 503 }
+    );
+  }
   return NextResponse.json({ activities: data ?? [] });
 }

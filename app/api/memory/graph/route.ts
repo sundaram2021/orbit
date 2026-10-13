@@ -76,34 +76,46 @@ export async function GET() {
   }
 
   try {
-    const res = await fetch("https://api.supermemory.ai/v3/documents/documents", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${orbitEnv.supermemoryApiKey}`,
+    const { fetchWithTimeout, safeJson } = await import("@/lib/fetch-utils");
+    const res = await fetchWithTimeout(
+      "https://api.supermemory.ai/v3/documents/documents",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${orbitEnv.supermemoryApiKey}`,
+        },
+        body: JSON.stringify({
+          page: 1,
+          limit: 200,
+          sort: "createdAt",
+          order: "desc",
+          containerTag: namespaceFor(user.id),
+        }),
       },
-      body: JSON.stringify({
-        page: 1,
-        limit: 200,
-        sort: "createdAt",
-        order: "desc",
-        containerTag: namespaceFor(user.id),
-      }),
-    });
+      15000
+    );
     if (!res.ok) {
-      return NextResponse.json({ documents: [], error: `supermemory (${res.status})` });
+      return NextResponse.json(
+        { documents: [], error: `supermemory (${res.status})`, retryable: true },
+        { status: 502 }
+      );
     }
-    const data = (await res.json()) as {
+    const data = await safeJson<{
       documents?: RawDocument[];
       data?: { documents?: RawDocument[] };
-    };
+    }>(res);
     const raw =
-      data.documents ?? data.data?.documents ?? (Array.isArray(data) ? (data as RawDocument[]) : []);
+      data?.documents ?? data?.data?.documents ?? (Array.isArray(data) ? (data as RawDocument[]) : []);
     return NextResponse.json({ documents: toGraphDocuments(raw) });
   } catch (err) {
-    return NextResponse.json({
-      documents: [],
-      error: (err as Error).message.slice(0, 200),
-    });
+    return NextResponse.json(
+      {
+        documents: [],
+        error: (err as Error).message.slice(0, 200),
+        retryable: true,
+      },
+      { status: 502 }
+    );
   }
 }

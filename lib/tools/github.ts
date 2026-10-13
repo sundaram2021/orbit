@@ -1,16 +1,16 @@
-import { Octokit } from "@octokit/rest";
+import { createOctokit, parseRepo as parseRepoStrict, githubErrorMessage } from "../octokit";
 import { sandboxExec } from "../sandbox/tensorlake";
 import { registerTool, type ToolContext } from "./registry";
 
-function octo(ctx: ToolContext): Octokit {
+async function octo(ctx: ToolContext): Promise<ReturnType<typeof createOctokit>> {
   if (!ctx.githubToken) throw new Error("GitHub is not connected for this user.");
-  return new Octokit({ auth: ctx.githubToken });
+  return createOctokit(ctx.githubToken);
 }
 
 function parseRepo(repo: string): [string, string] {
-  const [o, r] = repo.split("/");
-  if (!o || !r) throw new Error(`Bad repo, expected owner/name: ${repo}`);
-  return [o, r];
+  const parsed = parseRepoStrict(repo);
+  if (!parsed) throw new Error(`Bad repo, expected owner/name: ${repo}`);
+  return [parsed.owner, parsed.name];
 }
 
 export function registerGithubTools(): void {
@@ -31,7 +31,7 @@ export function registerGithubTools(): void {
     handler: async (input, ctx) => {
       const [o, r] = parseRepo(input.repo);
       const num = Number(input.number);
-      const gh = octo(ctx);
+      const gh = await octo(ctx);
       if (input.kind === "issue") {
         const [issue, comments] = await Promise.all([
           gh.issues.get({ owner: o, repo: r, issue_number: num }),
@@ -50,7 +50,10 @@ export function registerGithubTools(): void {
           gh.pulls.get({ owner: o, repo: r, pull_number: num }),
           gh.request(`GET /repos/${o}/${r}/pulls/${num}`, {
             headers: { accept: "application/vnd.github.diff" },
-          }).then((res) => String(res.data).slice(0, 12000)),
+          }).then(
+            (res) => String(res.data).slice(0, 12000),
+            () => "(diff unavailable)"
+          ),
         ]);
         return {
           ok: true,
@@ -100,7 +103,7 @@ export function registerGithubTools(): void {
         if (!Number.isFinite(num)) return { ok: false, output: `Bad number: ${input.number}` };
         const body = (input.body ?? "").trim();
         if (!body) return { ok: false, output: "Empty comment body." };
-        const gh = octo(ctx);
+        const gh = await octo(ctx);
         try {
           const comment = await gh.issues.createComment({
             owner: o,
@@ -157,7 +160,7 @@ export function registerGithubTools(): void {
       const q = (input.query ?? "").trim();
       if (!q) return { ok: false, output: "Empty query." };
       const repo = (input.repo ?? "").trim();
-      const gh = octo(ctx);
+      const gh = await octo(ctx);
       try {
         const res = await gh.search.code({
           q: repo ? `${q} repo:${repo}` : q,
@@ -193,7 +196,7 @@ export function registerGithubTools(): void {
     permission: "auto",
     handler: async (input, ctx) => {
       const [o, r] = parseRepo((input.repo ?? "").trim());
-      const gh = octo(ctx);
+      const gh = await octo(ctx);
       try {
         const [meta, tree] = await Promise.all([
           gh.repos.get({ owner: o, repo: r }),
@@ -255,7 +258,7 @@ export function registerGithubTools(): void {
     permission: "auto",
     handler: async (input, ctx) => {
       const [o, r] = parseRepo((input.repo ?? "").trim());
-      const gh = octo(ctx);
+      const gh = await octo(ctx);
       try {
         let ref = (input.ref ?? "").trim();
         if (input.pr) {
@@ -307,7 +310,7 @@ export function registerGithubTools(): void {
       const title = (input.title ?? "").trim();
       const body = (input.body ?? "").trim();
       if (!title || !body) return { ok: false, output: "Title and body are required." };
-      const gh = octo(ctx);
+      const gh = await octo(ctx);
       try {
         const issue = await gh.issues.create({ owner: o, repo: r, title, body });
         try {
@@ -390,7 +393,7 @@ export function registerGithubTools(): void {
         if (pushed.code !== 0) {
           return { ok: false, output: `Push failed: ${pushed.out.slice(0, 300)}` };
         }
-        const gh = octo(ctx);
+        const gh = await octo(ctx);
         const open = await gh.pulls.list({ owner: o, repo: r, state: "open", head: `${o}:${branch}` });
         let prNumber: number;
         let prUrl: string;
@@ -462,7 +465,7 @@ export function registerGithubTools(): void {
       if (!body) return { ok: false, output: "Review body is required." };
       const event = (input.event ?? "COMMENT").toUpperCase() as "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 
-      const gh = octo(ctx);
+      const gh = await octo(ctx);
       try {
         const review = await gh.pulls.createReview({
           owner: o,
@@ -582,7 +585,7 @@ export function registerGithubTools(): void {
     handler: async (input, ctx) => {
       const repo = (input.repo ?? "").trim();
       const [o, r] = parseRepo(repo);
-      const gh = octo(ctx);
+      const gh = await octo(ctx);
       const state = (input.state as "open" | "closed" | "all") || "open";
       const perPage = Math.min(100, Math.max(1, Number(input.per_page) || 30));
       try {
@@ -625,7 +628,7 @@ export function registerGithubTools(): void {
     handler: async (input, ctx) => {
       const repo = (input.repo ?? "").trim();
       const [o, r] = parseRepo(repo);
-      const gh = octo(ctx);
+      const gh = await octo(ctx);
       const state = (input.state as "open" | "closed" | "all") || "open";
       const perPage = Math.min(100, Math.max(1, Number(input.per_page) || 30));
       try {
@@ -679,10 +682,14 @@ export async function executeCloseIssue(params: CloseIssueParams): Promise<{ ok:
   if (!githubToken) return { ok: false, output: "GitHub is not connected for this user." };
   try {
     const [o, r] = parseRepo(repo.trim());
-    const gh = new Octokit({ auth: githubToken });
+    const gh = await createOctokit(githubToken);
     const comment = (params.comment ?? "").trim();
+    let commentPosted = true;
     if (comment) {
-      await gh.issues.createComment({ owner: o, repo: r, issue_number: issueNumber, body: comment }).catch(() => {});
+      commentPosted = await gh.issues
+        .createComment({ owner: o, repo: r, issue_number: issueNumber, body: comment })
+        .then(() => true)
+        .catch(() => false);
     }
     const stateReason = params.reason === "not_planned" ? "not_planned" : "completed";
     await gh.issues.update({ owner: o, repo: r, issue_number: issueNumber, state: "closed", state_reason: stateReason });
@@ -691,14 +698,14 @@ export async function executeCloseIssue(params: CloseIssueParams): Promise<{ ok:
         {
           user_id: userId,
           title: `Issue closed: ${repo}#${issueNumber}`,
-          description: `Closed as ${stateReason}${comment ? `: "${comment.slice(0, 100)}"` : ""}`,
+          description: `Closed as ${stateReason}${comment ? `: "${comment.slice(0, 100)}"` : ""}${comment && !commentPosted ? " (comment failed to post)" : ""}`,
           type: "issue",
         },
       ]);
     } catch { /* non-fatal */ }
-    return { ok: true, output: `Issue #${issueNumber} in ${repo} closed successfully (${stateReason}).` };
+    return { ok: true, output: `Issue #${issueNumber} in ${repo} closed successfully (${stateReason}).${comment && !commentPosted ? " Note: the comment failed to post." : ""}` };
   } catch (err) {
-    return { ok: false, output: `Close issue failed: ${(err as Error).message.slice(0, 300)}` };
+    return { ok: false, output: `Close issue failed: ${githubErrorMessage(err)}` };
   }
 }
 
@@ -708,10 +715,14 @@ export async function executeClosePR(params: ClosePRParams): Promise<{ ok: boole
   if (!githubToken) return { ok: false, output: "GitHub is not connected for this user." };
   try {
     const [o, r] = parseRepo(repo.trim());
-    const gh = new Octokit({ auth: githubToken });
+    const gh = await createOctokit(githubToken);
     const comment = (params.comment ?? "").trim();
+    let commentPosted = true;
     if (comment) {
-      await gh.issues.createComment({ owner: o, repo: r, issue_number: prNumber, body: comment }).catch(() => {});
+      commentPosted = await gh.issues
+        .createComment({ owner: o, repo: r, issue_number: prNumber, body: comment })
+        .then(() => true)
+        .catch(() => false);
     }
     await gh.pulls.update({ owner: o, repo: r, pull_number: prNumber, state: "closed" });
     try {
@@ -719,13 +730,13 @@ export async function executeClosePR(params: ClosePRParams): Promise<{ ok: boole
         {
           user_id: userId,
           title: `PR closed: ${repo}#${prNumber}`,
-          description: `Closed without merge${comment ? `: "${comment.slice(0, 100)}"` : ""}`,
+          description: `Closed without merge${comment ? `: "${comment.slice(0, 100)}"` : ""}${comment && !commentPosted ? " (comment failed to post)" : ""}`,
           type: "pr",
         },
       ]);
     } catch { /* non-fatal */ }
-    return { ok: true, output: `Pull request #${prNumber} in ${repo} closed successfully.` };
+    return { ok: true, output: `Pull request #${prNumber} in ${repo} closed successfully.${comment && !commentPosted ? " Note: the comment failed to post." : ""}` };
   } catch (err) {
-    return { ok: false, output: `Close PR failed: ${(err as Error).message.slice(0, 300)}` };
+    return { ok: false, output: `Close PR failed: ${githubErrorMessage(err)}` };
   }
 }

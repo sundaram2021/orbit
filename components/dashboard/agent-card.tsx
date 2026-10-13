@@ -81,6 +81,7 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
   const [tab, setTab] = useState<DetailTab>("prompt");
   const [copied, setCopied] = useState(false);
   const [acting, setActing] = useState<"approve" | "cancel" | null>(null);
+  const [actError, setActError] = useState<string | null>(null);
   const r = (agent.result ?? {}) as AgentResult;
   const repo = useMemo(
     () => r.repo ?? extractRepo(agent.system_prompt) ?? "",
@@ -102,9 +103,25 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
   const act = useCallback(
     async (action: "approve" | "cancel") => {
       setActing(action);
+      setActError(null);
       try {
-        await fetch(`/api/agents/${agent.id}/${action}`, { method: "POST" });
+        const res = await fetch(`/api/agents/${agent.id}/${action}`, { method: "POST" });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(data?.error ?? `${action} failed (${res.status})`);
+        }
         onChanged();
+      } catch (err) {
+        setActError(`${action === "approve" ? "Approve" : "Cancel"} failed: ${(err as Error).message}. Retry.`);
+        window.dispatchEvent(
+          new CustomEvent("orbit:toast", {
+            detail: {
+              id: `toast-act-${agent.id}-${Date.now()}`,
+              title: `${action === "approve" ? "Approve" : "Cancel"} failed`,
+              body: (err as Error).message.slice(0, 120),
+            },
+          })
+        );
       } finally {
         setActing(null);
       }
@@ -164,6 +181,11 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
       </div>
 
       <div className="agent-actions">
+        {actError ? (
+          <div className="chat-error" role="alert" style={{ flexBasis: "100%" }}>
+            {actError}
+          </div>
+        ) : null}
         {agent.status === "awaiting_approval" ? (
           <button type="button" disabled={acting !== null} onClick={() => void act("approve")} className="approval-btn approval-approve">
             {acting === "approve" ? <span className="inline-flex animate-spin"><Loader2 className="size-3.5" /></span> : <Play className="size-3.5" />} Approve &amp; run

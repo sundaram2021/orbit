@@ -83,17 +83,20 @@ async function fileToImageAttachment(file: File): Promise<ChatAttachment> {
 }
 
 export function ChatPanel({ kind, title, greeting, placeholder, suggestions, chat }: ChatPanelProps) {
-  const { messages, isLoading, isStreaming, activeStep, error, send, stop, activeRepo, setActiveRepo } = chat;
+  const { messages, isLoading, isStreaming, activeStep, error, send, stop, retryLast, lastFailed, activeRepo, setActiveRepo } = chat;
   const [input, setInput] = useState("");
   const [repos, setRepos] = useState<RepoOption[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
+  const [reposError, setReposError] = useState<string | null>(null);
   const [repoOpen, setRepoOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [pickerTab, setPickerTab] = useState<PickerTab>(null);
   const [pickerItems, setPickerItems] = useState<GithubItem[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerQuery, setPickerQuery] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [fileNotice, setFileNotice] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const repoBoxRef = useRef<HTMLDivElement>(null);
   const plusBoxRef = useRef<HTMLDivElement>(null);
@@ -147,10 +150,17 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     // Intentional: fetch repos on mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setReposLoading(true);
+    setReposError(null);
     fetch("/api/repos")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`repos failed (${r.status})`);
+        return r.json();
+      })
       .then((data: { repos?: RepoOption[] }) => setRepos(data.repos ?? []))
-      .catch(() => setRepos([]))
+      .catch(() => {
+        setRepos([]);
+        setReposError("Couldn't load repositories. Check GitHub connection.");
+      })
       .finally(() => setReposLoading(false));
   }, [kind]);
 
@@ -182,15 +192,21 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     if (!activeRepo) return;
     setPickerTab(tab);
     setPickerLoading(true);
+    setPickerError(null);
     setPickerItems([]);
     try {
       const res = await fetch(
         `/api/github/list?repo=${encodeURIComponent(activeRepo)}&type=${tab}`
       );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `list failed (${res.status})`);
+      }
       const data = (await res.json()) as { items?: GithubItem[] };
       setPickerItems(data.items ?? []);
-    } catch {
+    } catch (err) {
       setPickerItems([]);
+      setPickerError((err as Error).message);
     } finally {
       setPickerLoading(false);
     }
@@ -221,8 +237,9 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
           ? text.slice(0, MAX_FILE_CHARS) + `\n…(truncated ${text.length - MAX_FILE_CHARS} chars)`
           : text;
       setAttachments((prev) => [...prev, { type: "file", name: file.name, content: truncated }]);
+      setFileNotice(null);
     } catch {
-      // unreadable file — ignore
+      setFileNotice(`Couldn't read ${file.name} — skipped.`);
     }
     setPlusOpen(false);
   };
@@ -231,18 +248,23 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
     if (imageFiles.length === 0) return;
     const room = MAX_IMAGES - attachments.filter((a) => a.type === "image").length;
-    if (room <= 0) return;
+    if (room <= 0) {
+      setFileNotice(`Image limit reached (${MAX_IMAGES}). Remove one to add more.`);
+      return;
+    }
+    let skipped = 0;
     for (const file of imageFiles.slice(0, room)) {
-      if (file.size > MAX_IMAGE_BYTES * 3) continue; // reject absurdly large originals
+      if (file.size > MAX_IMAGE_BYTES * 3) { skipped++; continue; } // reject absurdly large originals
       try {
         const att = await fileToImageAttachment(file);
         // Approx guard: downscaled JPEG data URL should stay well under ~1.5MB.
-        if ((att.dataUrl?.length ?? 0) > 2_000_000) continue;
+        if ((att.dataUrl?.length ?? 0) > 2_000_000) { skipped++; continue; }
         setAttachments((prev) => [...prev, att]);
       } catch {
-        // unreadable image — skip
+        skipped++;
       }
     }
+    setFileNotice(skipped > 0 ? `Skipped ${skipped} image${skipped === 1 ? "" : "s"} (too large or unreadable).` : null);
   };
 
   /** Paste screenshots / copied images straight into the composer. */
@@ -325,8 +347,40 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
       </button>
       {repoOpen && (
         <div className="orbit-repo-menu" role="listbox">
-          {reposLoading && <div className="repo-empty">Loading repositories…</div>}
-          {!reposLoading && repos.length === 0 && (
+          {reposLoading ? (
+            <div aria-busy="true" className="space-y-1.5 p-2">
+              <div className="animate-pulse rounded-md bg-muted/60 h-8 w-full" aria-hidden="true" />
+              <div className="animate-pulse rounded-md bg-muted/60 h-8 w-full" aria-hidden="true" />
+              <div className="animate-pulse rounded-md bg-muted/60 h-8 w-full" aria-hidden="true" />
+            </div>
+          ) : null}
+          {!reposLoading && reposError ? (
+            <div className="repo-empty" role="alert">
+              {reposError}{" "}
+              <button
+                type="button"
+                className="underline"
+                onClick={() => {
+                  setReposLoading(true);
+                  setReposError(null);
+                  fetch("/api/repos")
+                    .then((r) => {
+                      if (!r.ok) throw new Error();
+                      return r.json();
+                    })
+                    .then((data: { repos?: RepoOption[] }) => setRepos(data.repos ?? []))
+                    .catch(() => {
+                      setRepos([]);
+                      setReposError("Couldn't load repositories. Check GitHub connection.");
+                    })
+                    .finally(() => setReposLoading(false));
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
+          {!reposLoading && !reposError && repos.length === 0 && (
             <div className="repo-empty">No repositories found. Check GitHub connection.</div>
           )}
           {activeRepo && (
@@ -456,8 +510,26 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
                 aria-label={`Search ${pickerTab}`}
               />
               <div className="composer-picker-list">
-                {pickerLoading && <div className="repo-empty">Loading…</div>}
-                {!pickerLoading && filteredPicker.length === 0 && (
+                {pickerLoading ? (
+                  <div aria-busy="true" className="space-y-1.5 p-2">
+                    <div className="animate-pulse rounded-md bg-muted/60 h-10 w-full" aria-hidden="true" />
+                    <div className="animate-pulse rounded-md bg-muted/60 h-10 w-full" aria-hidden="true" />
+                    <div className="animate-pulse rounded-md bg-muted/60 h-10 w-full" aria-hidden="true" />
+                  </div>
+                ) : null}
+                {!pickerLoading && pickerError ? (
+                  <div className="repo-empty" role="alert">
+                    {pickerError}{" "}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => void openPicker(pickerTab)}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : null}
+                {!pickerLoading && !pickerError && filteredPicker.length === 0 && (
                   <div className="repo-empty">
                     No open {pickerTab} in {activeRepo}.
                   </div>
@@ -551,6 +623,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
           </button>
         )}
       </form>
+      {fileNotice ? <p className="orbit-hint" role="status">{fileNotice}</p> : null}
       <p className="orbit-hint">Enter to send · Shift+Enter for a new line · Orbit acts on your GitHub</p>
     </div>
   );
@@ -587,7 +660,16 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
             </button>
           ))}
         </div>
-        {error && <div className="orbit-error">{error}</div>}
+        {error ? (
+          <div className="orbit-error" role="alert">
+            {error}{" "}
+            {lastFailed ? (
+              <button type="button" className="underline" onClick={() => void retryLast()}>
+                Retry
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -611,8 +693,17 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
 
       <div className="orbit-scroll">
         {isLoading ? (
-          <div className="orbit-loading">
-            <span className="inline-flex animate-spin"><Loader2 className="size-4" /></span> Loading conversation…
+          <div aria-busy="true" className="space-y-3">
+            <div className="flex justify-end">
+              <div className="animate-pulse rounded-2xl bg-muted/60 h-12 w-2/3" aria-hidden="true" />
+            </div>
+            <div className="flex gap-2">
+              <div className="animate-pulse rounded-full bg-muted/60 size-8 shrink-0" aria-hidden="true" />
+              <div className="flex-1 space-y-2">
+                <div className="animate-pulse rounded-md bg-muted/60 h-4 w-1/4" aria-hidden="true" />
+                <div className="animate-pulse rounded-md bg-muted/60 h-16 w-full" aria-hidden="true" />
+              </div>
+            </div>
           </div>
         ) : null}
         {messages.map((m, mi) =>
@@ -684,7 +775,16 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
         <div ref={bottomRef} />
       </div>
 
-      {error && <div className="orbit-error">{error}</div>}
+      {error ? (
+        <div className="orbit-error" role="alert">
+          {error}{" "}
+          {lastFailed ? (
+            <button type="button" className="underline" onClick={() => void retryLast()}>
+              Retry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="orbit-bottom">
         {kind === "orchestrator" && <ApprovalCards />}

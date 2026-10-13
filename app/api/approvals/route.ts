@@ -17,12 +17,18 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const status = new URL(request.url).searchParams.get("status") ?? "pending";
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("approvals")
     .select("*")
     .eq("status", status)
     .order("created_at", { ascending: false })
     .limit(50);
+  if (error) {
+    return NextResponse.json(
+      { approvals: [], error: "Couldn't load approvals. Retry.", retryable: true },
+      { status: 503 }
+    );
+  }
   return NextResponse.json({ approvals: data ?? [] });
 }
 
@@ -31,7 +37,14 @@ interface DecideBody {
   decision: "approved" | "rejected";
 }
 
-/** Approve or reject. Approved decisions execute immediately (fire-and-forget). */
+/**
+ * Approve or reject.
+ * Approved decisions run through an execution state machine:
+ * pending → executing → approved | failed. The response returns immediately
+ * after marking `executing`; the side effect runs in the background and its
+ * outcome (approved/failed + activities row) is visible on refresh. A failed
+ * execution can be retried — the approval stays actionable.
+ */
 export async function POST(request: Request) {
   const supabase = await createOrbitServerClient();
   const {
@@ -39,33 +52,117 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { id, decision } = (await request.json()) as DecideBody;
+  const body = (await request.json().catch(() => null)) as DecideBody | null;
+  const id = body?.id;
+  const decision = body?.decision;
   if (!id || (decision !== "approved" && decision !== "rejected")) {
     return NextResponse.json({ error: "bad request" }, { status: 400 });
   }
 
-  const { data } = await supabase.from("approvals").select("*").eq("id", id).single();
+  const { data, error } = await supabase.from("approvals").select("*").eq("id", id).single();
   const approval = data as Approval | null;
-  if (!approval || approval.status !== "pending") {
+  if (error || !approval || (approval.status !== "pending" && approval.status !== "failed")) {
     return NextResponse.json({ error: "approval not found or already decided" }, { status: 404 });
   }
 
   // Use the service client for follow-up writes (RLS-safe: scoped to this user).
-  const svc = createServiceClient();
-  await svc
-    .from("approvals")
-    .update({ status: decision, decided_at: new Date().toISOString() })
-    .eq("id", id);
-
-  if (decision === "rejected") {
-    await handleReject(svc, user.id, approval);
-  } else {
-    // Fire-and-forget execution; respond immediately.
-    void handleApprove(svc, user.id, approval).catch((err) =>
-      console.error("approval execution failed:", err)
+  let svc: ReturnType<typeof createServiceClient>;
+  try {
+    svc = createServiceClient();
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Server misconfigured: ${(err as Error).message}` },
+      { status: 503 }
     );
   }
-  return NextResponse.json({ ok: true, decision });
+
+  if (decision === "rejected") {
+    try {
+      await handleReject(svc, user.id, approval);
+    } catch (err) {
+      return NextResponse.json({ error: `Reject failed: ${(err as Error).message}. Retry.` }, { status: 500 });
+    }
+    await svc
+      .from("approvals")
+      .update({ status: "rejected", decided_at: new Date().toISOString() })
+      .eq("id", id);
+    return NextResponse.json({ ok: true, decision });
+  }
+
+  // Mark executing first so a crash between decision and side effect is
+  // visible (not a silent approved-but-nothing-happened). If the migration
+  // adding 'executing' isn't applied yet, fall back to the legacy path.
+  const executing = await svc
+    .from("approvals")
+    .update({ status: "executing", decided_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", approval.status);
+  if (executing.error) {
+    if (/check|constraint|invalid input/i.test(executing.error.message)) {
+      // Legacy DB: mark approved and run fire-and-forget as before.
+      await svc
+        .from("approvals")
+        .update({ status: "approved", decided_at: new Date().toISOString() })
+        .eq("id", id);
+      void executeApproval(svc, user.id, approval, false).catch((err) =>
+        console.error("approval execution failed:", err)
+      );
+      return NextResponse.json({ ok: true, decision, legacy: true });
+    }
+    return NextResponse.json({ error: "Couldn't start execution. Retry.", retryable: true }, { status: 503 });
+  }
+  void executeApproval(svc, user.id, approval, true).catch((err) =>
+    console.error("approval execution failed:", err)
+  );
+  return NextResponse.json({ ok: true, decision, executing: true });
+}
+
+/** Run the side effect, then land the approval in approved or failed. Never throws. */
+export async function executeApproval(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  svc: any,
+  userId: string,
+  approval: Approval,
+  useExecutionStates: boolean
+): Promise<void> {
+  try {
+    await handleApprove(svc, userId, approval);
+    if (useExecutionStates) {
+      await svc.from("approvals").update({ status: "approved" }).eq("id", approval.id);
+    }
+  } catch (err) {
+    const message = (err as Error).message.slice(0, 300);
+    console.error("approval execution failed:", err);
+    try {
+      if (useExecutionStates) {
+        // Back to actionable: failed approvals can be retried from the UI.
+        await svc.from("approvals").update({ status: "failed" }).eq("id", approval.id);
+      }
+      await svc.from("activities").insert([
+        {
+          user_id: userId,
+          title: `Approval failed: ${approval.kind}`,
+          description: `${message} — retry from approvals.`,
+          type: "event",
+        },
+      ]);
+      // run_agent failures must reset the agent so it can be started again.
+      if (approval.kind === "run_agent") {
+        await svc.from("sub_agents").update({ status: "awaiting_approval" }).eq("id", approval.ref_id);
+      }
+    } catch (notifyErr) {
+      console.error("approval failure bookkeeping failed:", notifyErr);
+    }
+  }
+}
+
+/** Parse a JSON ref_id with a plain-id fallback (legacy rows store a bare agent id). */
+function parseRef<T>(refId: string, fallback: T): T {
+  try {
+    return JSON.parse(refId) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 async function handleReject(
@@ -112,8 +209,8 @@ export async function handleApprove(
       break;
     }
     case "publish_pr": {
-      if (!token) break;
-      const ref = JSON.parse(approval.ref_id) as {
+      if (!token) throw new Error("GitHub not connected — reconnect GitHub and retry.");
+      const ref = parseRef(approval.ref_id, null) as {
         agentId: string;
         repo: string;
         branch: string;
@@ -121,10 +218,15 @@ export async function handleApprove(
         summary: string;
         testsPassed: boolean;
         sandboxId?: string;
-      };
-      const { Octokit } = await import("@octokit/rest");
-      const octokit = new Octokit({ auth: token });
-      const [o, r] = ref.repo.split("/");
+      } | null;
+      if (!ref?.agentId || !ref?.repo || !ref?.branch || !ref?.base) {
+        throw new Error("Publish approval is missing details — ask the orchestrator to regenerate it.");
+      }
+      const { createOctokit, parseRepo } = await import("@/lib/octokit");
+      const octokit = await createOctokit(token);
+      const parsed = parseRepo(ref.repo);
+      if (!parsed) throw new Error(`Bad repo in approval: ${ref.repo}`);
+      const { owner: o, name: r } = parsed;
       // Adopt: the sub-agent may already have opened a PR on this branch
       // itself (create_pr tool) — never open a duplicate.
       const existing = await octokit.pulls.list({ owner: o, repo: r, state: "open", head: `${o}:${ref.branch}` });
@@ -173,20 +275,25 @@ export async function handleApprove(
         ref.summary,
         ((agent as { run_log?: string } | null)?.run_log ?? "") as string,
         { testsPassed: ref.testsPassed, repo: ref.repo, branch: ref.branch, base: ref.base, token }
-      );
+      ).catch((err) => console.error("post-publish evaluation failed:", err));
       break;
     }
     case "merge": {
-      if (!token) break;
-      const ref = JSON.parse(approval.ref_id) as {
+      if (!token) throw new Error("GitHub not connected — reconnect GitHub and retry.");
+      const ref = parseRef(approval.ref_id, null) as {
         agentId: string;
         repo: string;
         prNumber: number;
         sandboxId?: string;
-      };
-      const { Octokit: OctokitMerge } = await import("@octokit/rest");
-      const octokit = new OctokitMerge({ auth: token });
-      const [o, r] = ref.repo.split("/");
+      } | null;
+      if (!ref?.agentId || !ref?.repo || ref?.prNumber == null) {
+        throw new Error("Merge approval is missing details — ask the orchestrator to regenerate it.");
+      }
+      const { createOctokit: createOctokitMerge, parseRepo: parseRepoMerge } = await import("@/lib/octokit");
+      const octokit = await createOctokitMerge(token);
+      const parsedMerge = parseRepoMerge(ref.repo);
+      if (!parsedMerge) throw new Error(`Bad repo in approval: ${ref.repo}`);
+      const { owner: o, name: r } = parsedMerge;
       await octokit.pulls.merge({ owner: o, repo: r, pull_number: ref.prNumber, merge_method: "squash" });
       await writeResult(svc, ref.agentId, { merged: true });
       const { data: agent } = await svc.from("sub_agents").select("*").eq("id", ref.agentId).single();
@@ -199,11 +306,16 @@ export async function handleApprove(
       break;
     }
     case "github_comment": {
-      if (!token) break;
-      const ref = JSON.parse(approval.ref_id) as { repo: string; number: string; body: string };
-      const { Octokit: OctokitComment } = await import("@octokit/rest");
-      const octokit = new OctokitComment({ auth: token });
-      const [o, r] = ref.repo.split("/");
+      if (!token) throw new Error("GitHub not connected — reconnect GitHub and retry.");
+      const ref = parseRef(approval.ref_id, null) as { repo: string; number: string; body: string } | null;
+      if (!ref?.repo || !ref?.number || !ref?.body) {
+        throw new Error("Comment approval is missing details — ask the orchestrator to regenerate it.");
+      }
+      const { createOctokit: createOctokitComment, parseRepo: parseRepoComment } = await import("@/lib/octokit");
+      const octokit = await createOctokitComment(token);
+      const parsedComment = parseRepoComment(ref.repo);
+      if (!parsedComment) throw new Error(`Bad repo in approval: ${ref.repo}`);
+      const { owner: o, name: r } = parsedComment;
       await octokit.issues.createComment({
         owner: o,
         repo: r,
@@ -217,7 +329,10 @@ export async function handleApprove(
     }
     case "close_issue": {
       const { executeCloseIssue } = await import("@/lib/tools/github");
-      const ref = JSON.parse(approval.ref_id) as { repo: string; issue_number?: string | number; reason?: string; comment?: string };
+      const ref = parseRef(approval.ref_id, null) as { repo: string; issue_number?: string | number; reason?: string; comment?: string } | null;
+      if (!ref?.repo || ref?.issue_number == null) {
+        throw new Error("Close-issue approval is missing details — ask the orchestrator to regenerate it.");
+      }
       const res = await executeCloseIssue({
         supabase: svc,
         userId,
@@ -232,7 +347,10 @@ export async function handleApprove(
     }
     case "close_pr": {
       const { executeClosePR } = await import("@/lib/tools/github");
-      const ref = JSON.parse(approval.ref_id) as { repo: string; pr_number?: string | number; comment?: string };
+      const ref = parseRef(approval.ref_id, null) as { repo: string; pr_number?: string | number; comment?: string } | null;
+      if (!ref?.repo || ref?.pr_number == null) {
+        throw new Error("Close-PR approval is missing details — ask the orchestrator to regenerate it.");
+      }
       const res = await executeClosePR({
         supabase: svc,
         userId,

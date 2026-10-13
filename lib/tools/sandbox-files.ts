@@ -190,7 +190,7 @@ export function registerSandboxFileTools(): void {
       const dir = input.path ? jailPath(workdir, input.path) : workdir;
       const r = await sandboxExec(
         { id: sandboxId, mock: false },
-        `cd ${shellQuote(workdir)} && grep -rn --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build -m5 ${shellQuote(input.pattern)} ${shellQuote(dir)} | head -100`
+        `cd ${shellQuote(workdir)} && grep -rn --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build -m5 -e ${shellQuote(input.pattern)} ${shellQuote(dir)} | head -100`
       );
       const out = r.stdout.trim() || "(no matches)";
       return { ok: true, output: truncate(out, "narrow pattern or path") };

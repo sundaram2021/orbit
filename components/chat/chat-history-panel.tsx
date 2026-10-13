@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { X, MessageSquareText, Plus, Loader2 } from "lucide-react";
+import { X, MessageSquareText, Plus } from "lucide-react";
 import { ChatThread } from "@/hooks/use-chat";
+import { RowSkeleton, FetchError } from "@/components/common/loading";
 
 interface ChatHistoryPanelProps {
   isOpen: boolean;
@@ -10,8 +11,11 @@ interface ChatHistoryPanelProps {
   threads: ChatThread[];
   activeThreadId: string | null;
   isLoading: boolean;
+  threadsError?: string | null;
+  onRetryThreads?: () => void;
   onSelect: (id: string) => void;
   onNew: () => void;
+  isCreating?: boolean;
 }
 
 function timeAgo(iso: string): string {
@@ -28,8 +32,11 @@ export function ChatHistoryPanel({
   threads,
   activeThreadId,
   isLoading,
+  threadsError,
+  onRetryThreads,
   onSelect,
   onNew,
+  isCreating,
 }: ChatHistoryPanelProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -58,17 +65,23 @@ export function ChatHistoryPanel({
           </button>
         </div>
 
-        <button type="button" onClick={onNew} className="history-new">
-          <Plus className="size-3.5" /> New chat
+        <button type="button" onClick={onNew} disabled={isCreating} className="history-new">
+          <Plus className="size-3.5" /> {isCreating ? "Starting…" : "New chat"}
         </button>
 
-        {isLoading && (
-          <div className="chat-loading">
-            <Loader2 className="size-4 animate-spin" /> Loading history…
+        {isLoading ? (
+          <div aria-busy="true">
+            <RowSkeleton />
+            <RowSkeleton />
+            <RowSkeleton />
           </div>
-        )}
+        ) : null}
 
-        {!isLoading && threads.length === 0 && (
+        {threadsError && !isLoading ? (
+          <FetchError message={threadsError} onRetry={onRetryThreads} />
+        ) : null}
+
+        {!isLoading && !threadsError && threads.length === 0 && (
           <div className="panel-empty">No past chats yet.</div>
         )}
 

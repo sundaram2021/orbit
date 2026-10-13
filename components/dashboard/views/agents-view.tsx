@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Loader2, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { SubAgent, Evaluation } from "@/types/orbit-types";
 import { AgentCard } from "../agent-card";
+import { CardSkeleton, FetchError } from "@/components/common/loading";
 
 type StatusFilter = "all" | SubAgent["status"];
 
@@ -31,6 +32,7 @@ export function AgentsView() {
   const [agents, setAgents] = useState<SubAgent[]>([]);
   const [evals, setEvals] = useState<Record<string, Evaluation>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
   const deferredQuery = React.useDeferredValue(query);
@@ -41,27 +43,42 @@ export function AgentsView() {
         fetch("/api/agents"),
         fetch("/api/agents?which=evaluations"),
       ]);
+      let failed = false;
       if (aRes.ok) {
         const data = (await aRes.json()) as { agents: SubAgent[] };
         setAgents(data.agents ?? []);
+      } else {
+        failed = true;
       }
       if (eRes.ok) {
         const data = (await eRes.json()) as { evaluations: Evaluation[] };
         const map: Record<string, Evaluation> = {};
         for (const e of data.evaluations ?? []) map[e.sub_agent_id] = e;
         setEvals(map);
+      } else {
+        failed = true;
       }
+      setLoadError(failed ? "Some data couldn't load. Showing what's available." : null);
+    } catch {
+      setLoadError("Couldn't load agents. Check your connection and retry.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const handleChanged = useCallback(() => void load(), [load]);
+  const handleChanged = useCallback(() => void load().catch(() => {}), [load]);
+
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    setLoadError(null);
+    void load().catch(() => {});
+  }, [load]);
 
   useEffect(() => {
-    void load();
-    const t = setInterval(load, 15000);
-    const onRefresh = () => void load();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load().catch(() => {});
+    const t = setInterval(() => void load().catch(() => {}), 15000);
+    const onRefresh = () => void load().catch(() => {});
     window.addEventListener("orbit:refresh", onRefresh);
     return () => {
       clearInterval(t);
@@ -136,13 +153,19 @@ export function AgentsView() {
         />
       </div>
 
+      {loadError && !isLoading ? (
+        <FetchError message={loadError} onRetry={handleRetry} />
+      ) : null}
+
       {isLoading ? (
-        <div className="chat-loading">
-          <span className="inline-flex animate-spin"><Loader2 className="size-4" /></span> Loading agents…
+        <div className="agent-list" aria-busy="true">
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
         </div>
       ) : null}
 
-      {!isLoading && filtered.length === 0 ? (agents.length === 0 ? NO_AGENTS_EMPTY : NO_MATCH_EMPTY) : null}
+      {!isLoading && !loadError && filtered.length === 0 ? (agents.length === 0 ? NO_AGENTS_EMPTY : NO_MATCH_EMPTY) : null}
 
       <div className="agent-list">
         {filtered.map((a) => (

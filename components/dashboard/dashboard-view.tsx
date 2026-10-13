@@ -77,16 +77,36 @@ export function DashboardView({
   }, []);
 
   useEffect(() => {
-    // Background polling: check every 60s while dashboard is active
+    // Background polling: check every 60s while dashboard is active.
+    // After 3 consecutive failures, toast once so a dead poller surfaces
+    // instead of silently never proposing again.
+    let failures = 0;
+    let toasted = false;
     const pollTimer = setInterval(() => {
       void fetch("/api/github/poll", { method: "POST" })
         .then((r) => r.json())
         .then((data: { proposed?: number }) => {
+          failures = 0;
+          toasted = false;
           if ((data.proposed ?? 0) > 0) {
             window.dispatchEvent(new Event("orbit:refresh"));
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          failures++;
+          if (failures >= 3 && !toasted) {
+            toasted = true;
+            window.dispatchEvent(
+              new CustomEvent("orbit:toast", {
+                detail: {
+                  id: `toast-poll-${Date.now()}`,
+                  title: "Background sync failing",
+                  body: "GitHub polling failed 3 times. Check connection, then reload.",
+                },
+              })
+            );
+          }
+        });
     }, 60000);
     return () => clearInterval(pollTimer);
   }, []);

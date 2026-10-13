@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Brain, Loader2, Search, ChevronDown } from "lucide-react";
+import { Brain, Search, ChevronDown } from "lucide-react";
 import { SubAgent, Evaluation } from "@/types/orbit-types";
+import { CardSkeleton, FetchError } from "@/components/common/loading";
 
 type StatusFilter = "all" | Evaluation["status"];
 
@@ -24,6 +25,7 @@ export function EvaluatorView() {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [agents, setAgents] = useState<Record<string, SubAgent>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -35,25 +37,40 @@ export function EvaluatorView() {
         fetch("/api/agents?which=evaluations"),
         fetch("/api/agents"),
       ]);
+      let failed = false;
       if (eRes.ok) {
         const data = (await eRes.json()) as { evaluations: Evaluation[] };
         setEvaluations(data.evaluations ?? []);
+      } else {
+        failed = true;
       }
       if (aRes.ok) {
         const data = (await aRes.json()) as { agents: SubAgent[] };
         const map: Record<string, SubAgent> = {};
         for (const a of data.agents ?? []) map[a.id] = a;
         setAgents(map);
+      } else {
+        failed = true;
       }
+      setLoadError(failed ? "Some data couldn't load. Showing what's available." : null);
+    } catch {
+      setLoadError("Couldn't load evaluations. Check your connection and retry.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    setLoadError(null);
+    void load().catch(() => {});
+  }, [load]);
+
   useEffect(() => {
-    void load();
-    const t = setInterval(load, 20000);
-    const onRefresh = () => void load();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load().catch(() => {});
+    const t = setInterval(() => void load().catch(() => {}), 20000);
+    const onRefresh = () => void load().catch(() => {});
     window.addEventListener("orbit:refresh", onRefresh);
     return () => {
       clearInterval(t);
@@ -119,13 +136,18 @@ export function EvaluatorView() {
         />
       </div>
 
-      {isLoading && (
-        <div className="chat-loading">
-          <Loader2 className="size-4 animate-spin" /> Loading evaluations…
-        </div>
-      )}
+      {loadError && !isLoading ? (
+        <FetchError message={loadError} onRetry={handleRetry} />
+      ) : null}
 
-      {!isLoading && filtered.length === 0 && (
+      {isLoading ? (
+        <div className="agent-list" aria-busy="true">
+          <CardSkeleton />
+          <CardSkeleton />
+        </div>
+      ) : null}
+
+      {!isLoading && !loadError && filtered.length === 0 && (
         <section className="panel">
           <div className="panel-empty">
             {evaluations.length === 0

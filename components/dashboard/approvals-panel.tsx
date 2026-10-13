@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { ShieldCheck, Check, X, Loader2 } from "lucide-react";
+import { ShieldCheck, Check, X } from "lucide-react";
 import { Approval, ApprovalKind } from "@/types/orbit-types";
+import { RowSkeleton, FetchError } from "@/components/common/loading";
 
 const KIND_LABELS: Record<ApprovalKind, string> = {
   run_agent: "Run agent",
@@ -41,23 +42,35 @@ function describeApproval(a: Approval): string {
 export function ApprovalsPanel() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
+  const [decideError, setDecideError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/approvals?status=pending");
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`load failed (${res.status})`);
       const data = (await res.json()) as { approvals: Approval[] };
       setApprovals(data.approvals ?? []);
+      setLoadError(null);
+    } catch {
+      setLoadError("Couldn't load approvals. Retry — pending items may be hidden.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    setLoadError(null);
+    void load().catch(() => {});
+  }, [load]);
+
   useEffect(() => {
-    void load();
-    const t = setInterval(load, 15000);
-    const onRefresh = () => void load();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load().catch(() => {});
+    const t = setInterval(() => void load().catch(() => {}), 15000);
+    const onRefresh = () => void load().catch(() => {});
     window.addEventListener("orbit:refresh", onRefresh);
     return () => {
       clearInterval(t);
@@ -67,13 +80,21 @@ export function ApprovalsPanel() {
 
   const decide = async (id: string, decision: "approved" | "rejected") => {
     setDeciding(id);
+    setDecideError(null);
     try {
-      await fetch("/api/approvals", {
+      const res = await fetch("/api/approvals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, decision }),
       });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `decide failed (${res.status})`);
+      }
+      // Only remove the card on success — a failed decision stays actionable.
       setApprovals((prev) => prev.filter((a) => a.id !== id));
+    } catch (err) {
+      setDecideError((err as Error).message);
     } finally {
       setDeciding(null);
     }
@@ -87,12 +108,19 @@ export function ApprovalsPanel() {
       </div>
 
       <div className="item-list">
-        {isLoading && (
-          <div className="chat-loading">
-            <Loader2 className="size-4 animate-spin" /> Loading approvals…
+        {isLoading ? (
+          <div aria-busy="true">
+            <RowSkeleton />
+            <RowSkeleton />
           </div>
-        )}
-        {!isLoading && approvals.length === 0 && (
+        ) : null}
+        {loadError && !isLoading ? (
+          <FetchError message={loadError} onRetry={handleRetry} />
+        ) : null}
+        {decideError ? (
+          <FetchError message={decideError} />
+        ) : null}
+        {!isLoading && !loadError && approvals.length === 0 && (
           <div className="panel-empty">Nothing waiting. New agent proposals and tuning suggestions will appear here.</div>
         )}
         {approvals.map((a) => (

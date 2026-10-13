@@ -80,9 +80,12 @@ export function useChat(kind: ChatKind) {
   const [threadId, setThreadIdState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [threadsError, setThreadsError] = useState<string | null>(null);
   const [activeRepo, setActiveRepoState] = useState<string>("");
   const [activeStep, setActiveStep] = useState<string | null>(null);
+  const [lastFailed, setLastFailed] = useState<{ content: string; attachments: ChatAttachment[] } | null>(null);
   const activeRepoRef = useRef<string>("");
   const threadIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -134,15 +137,21 @@ export function useChat(kind: ChatKind) {
     if (kind !== "orchestrator") return [];
     try {
       const res = await fetch("/api/chat/orchestrator/threads");
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error(`threads failed (${res.status})`);
       const data = (await res.json()) as { threads: ChatThread[] };
       const list = data.threads ?? [];
       setThreads(list);
+      setThreadsError(null);
       return list;
     } catch {
+      setThreadsError("Couldn't load chat history. Retry.");
       return [];
     }
   }, [kind]);
+
+  const retryThreads = useCallback(() => {
+    void loadThreads().catch(() => {});
+  }, [loadThreads]);
 
   const selectThread = useCallback(
     async (id: string | null) => {
@@ -176,7 +185,8 @@ export function useChat(kind: ChatKind) {
   }, [load]);
 
   const newChat = useCallback(async (): Promise<string | null> => {
-    if (kind !== "orchestrator") return null;
+    if (kind !== "orchestrator" || isCreating) return null;
+    setIsCreating(true);
     try {
       const res = await fetch("/api/chat/orchestrator/threads", { method: "POST" });
       if (!res.ok) throw new Error(`create failed (${res.status})`);
@@ -187,8 +197,10 @@ export function useChat(kind: ChatKind) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start chat");
       return null;
+    } finally {
+      setIsCreating(false);
     }
-  }, [kind, loadThreads, selectThread]);
+  }, [kind, isCreating, loadThreads, selectThread]);
 
   const send = useCallback(
     async (content: string, opts?: { repo?: string; attachments?: ChatAttachment[] }) => {
@@ -258,12 +270,18 @@ export function useChat(kind: ChatKind) {
                 type?: string;
                 delta?: string;
                 done?: boolean;
+                error?: string;
+                retryable?: boolean;
                 status?: string;
                 tool?: string;
                 label?: string;
                 steps?: Array<{ tool: string; label: string; status: "done" | "error" }>;
               };
-              if (payload.type === "status" && payload.label) {
+              if (payload.type === "error") {
+                // Typed server failure — surface as a send error with retry,
+                // not as assistant text, and never persisted into history.
+                throw new Error(payload.error ?? "Request failed");
+              } else if (payload.type === "status" && payload.label) {
                 setActiveStep(payload.label);
               } else if (payload.type === "step_start" && payload.label) {
                 setActiveStep(payload.label);
@@ -322,18 +340,28 @@ export function useChat(kind: ChatKind) {
             }
           }
         }
-        // Refresh ids from server (replaces optimistic entries).
-        const refreshed = (await fetch(
-          `/api/chat/${kind}${threadIdRef.current ? `?thread_id=${encodeURIComponent(threadIdRef.current)}` : ""}`
-        ).then((r) => r.json())) as {
-          messages: ChatMessage[];
-        };
-        setMessages((prev) => {
-          const streamed = prev.find((m) => m.id === assistantId);
-          const streamedSteps = streamed?.steps ?? [];
-          return (refreshed.messages ?? [])
-            .filter((m) => !isNotice(m.content))
-            .map((m, idx, arr) => {
+        // Refresh ids from server (replaces optimistic entries). Wrapped
+        // separately so a refresh failure can't wipe just-streamed content.
+        try {
+          const refreshRes = await fetch(
+            `/api/chat/${kind}${threadIdRef.current ? `?thread_id=${encodeURIComponent(threadIdRef.current)}` : ""}`
+          );
+          if (!refreshRes.ok) throw new Error(`refresh failed (${refreshRes.status})`);
+          const refreshed = (await refreshRes.json()) as {
+            messages: ChatMessage[];
+          };
+          setMessages((prev) => {
+            const streamed = prev.find((m) => m.id === assistantId);
+            const streamedSteps = streamed?.steps ?? [];
+            const streamedContent = streamed?.content ?? "";
+            const server = (refreshed.messages ?? []).filter((m) => !isNotice(m.content));
+            if (server.length === 0 && (streamedContent || streamedSteps.length > 0)) {
+              // Refresh failed silently server-side — keep what we streamed.
+              return prev.map((m) =>
+                m.id === assistantId ? { ...m, id: `streamed-${Date.now()}` } : m
+              );
+            }
+            return server.map((m, idx, arr) => {
               const isLast = idx === arr.length - 1 && m.role === "assistant";
               // Prefer server-persisted steps (new steps column); fall back to
               // the just-streamed timeline so the UI never goes blank.
@@ -342,12 +370,27 @@ export function useChat(kind: ChatKind) {
               }
               return m;
             });
-        });
+          });
+        } catch (refreshErr) {
+          console.warn("chat refresh failed, keeping streamed content:", refreshErr);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, id: `streamed-${Date.now()}` } : m
+            )
+          );
+        }
+        setLastFailed(null);
         // Titles/counts may have changed (auto-title on first message).
-        void loadThreads();
+        void loadThreads().catch(() => {});
       } catch (err) {
-        if ((err as Error).name === "AbortError") return;
+        if ((err as Error).name === "AbortError") {
+          // Stopped by the user: drop both optimistic bubbles so nothing sticks.
+          setMessages((prev) => prev.filter((m) => m.id !== assistantId && m.id !== optimistic.id));
+          setLastFailed({ content: text, attachments });
+          return;
+        }
         setError(err instanceof Error ? err.message : "Send failed");
+        setLastFailed({ content: text, attachments });
         setMessages((prev) => prev.filter((m) => m.id !== assistantId));
       } finally {
         setIsStreaming(false);
@@ -356,6 +399,14 @@ export function useChat(kind: ChatKind) {
     },
     [kind, isStreaming, loadThreads]
   );
+
+  const retryLast = useCallback(() => {
+    if (lastFailed && !isStreaming) {
+      const { content, attachments } = lastFailed;
+      setLastFailed(null);
+      void send(content, { attachments });
+    }
+  }, [lastFailed, isStreaming, send]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -369,14 +420,19 @@ export function useChat(kind: ChatKind) {
     threadId,
     isLoading,
     isStreaming,
+    isCreating,
     activeStep,
     error,
+    threadsError,
+    lastFailed,
     send,
+    retryLast,
     stop,
     reload: load,
     selectThread,
     newChat,
     refreshThreads: loadThreads,
+    retryThreads,
     activeRepo,
     setActiveRepo,
   };

@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Loader2,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { SubAgent } from "@/types/orbit-types";
 import { formatRelativeTime } from "@/lib/format-helpers";
+import { LogSkeleton, FetchError } from "@/components/common/loading";
 
 function getStatusBadge(status?: string) {
   switch (status) {
@@ -69,16 +69,18 @@ export function TracesView() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [, setUserExpanded] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const deferredFilter = React.useDeferredValue(filter);
   const deferredAgentId = React.useDeferredValue(selectedAgentId);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/agents");
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`load failed (${res.status})`);
       const data = (await res.json()) as { agents: SubAgent[] };
       const list = data.agents ?? [];
       setAgents(list);
+      setLoadError(null);
       // Auto-expand the most recent agent on initial load if user never toggled.
       setUserExpanded((touched) => {
         if (!touched && list.length > 0) {
@@ -86,15 +88,24 @@ export function TracesView() {
         }
         return touched;
       });
+    } catch {
+      setLoadError("Couldn't load traces. Check your connection and retry.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    setLoadError(null);
+    void load().catch(() => {});
+  }, [load]);
+
   useEffect(() => {
-    void load();
-    const t = setInterval(load, 20000);
-    const onRefresh = () => void load();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load().catch(() => {});
+    const t = setInterval(() => void load().catch(() => {}), 20000);
+    const onRefresh = () => void load().catch(() => {});
     window.addEventListener("orbit:refresh", onRefresh);
     return () => {
       clearInterval(t);
@@ -217,13 +228,26 @@ export function TracesView() {
         </div>
       </div>
 
+      {loadError && !isLoading ? (
+        <FetchError message={loadError} onRetry={handleRetry} />
+      ) : null}
+
       {isLoading ? (
-        <div className="chat-loading">
-          <span className="inline-flex animate-spin"><Loader2 className="size-4" /></span> Loading traces…
+        <div aria-busy="true">
+          <LogSkeleton />
+          <LogSkeleton />
         </div>
       ) : null}
 
-      {!isLoading && filteredAgents.length === 0 ? NO_TRACES_EMPTY : null}
+      {!isLoading && !loadError && filteredAgents.length === 0
+        ? (agents.length === 0 ? NO_TRACES_EMPTY : (
+          <section className="panel">
+            <div className="panel-empty">
+              No traces match the selected filter. Adjust the filters to see more.
+            </div>
+          </section>
+        ))
+        : null}
 
       {filteredAgents.map((a) => (
         <TraceCard

@@ -173,7 +173,9 @@ export async function proposeAndMaybeRun(
     );
     // Fire-and-forget: the run loop outlives the request.
     const { runSubAgent } = await import("../sandbox/run");
-    void runSubAgent(supabase, input.userId, agentId);
+    void runSubAgent(supabase, input.userId, agentId).catch((err) =>
+      console.error("runSubAgent failed:", err)
+    );
     return { agentId, autoStarted: true };
   }
 

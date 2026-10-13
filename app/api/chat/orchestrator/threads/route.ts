@@ -16,13 +16,16 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { data: threads } = await supabase
+  const { data: threads, error } = await supabase
     .from("chat_threads")
     .select("id,title,updated_at,created_at")
     .eq("user_id", user.id)
     .eq("kind", "orchestrator")
     .order("updated_at", { ascending: false })
     .limit(50);
+  if (error) {
+    return NextResponse.json({ threads: [], error: "Couldn't load chats. Retry.", retryable: true }, { status: 503 });
+  }
 
   const rows = (threads ?? []) as ThreadRow[];
   const counts: Record<string, number> = {};

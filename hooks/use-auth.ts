@@ -14,6 +14,9 @@ export function useAuth(initialUser: OrbitUser | null = null) {
     setError(null);
     try {
       await signInWithGithubOAuth();
+      // Success navigates away via OAuth; if we're still here (popup
+      // blocked), stop spinning so the button is usable again.
+      setIsLoading(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "GitHub authentication failed";
       setError(message);

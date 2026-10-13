@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const body = (await request.json()) as {
+  const body = ((await request.json().catch(() => null)) ?? {}) as {
     orchestrator_auto_approve?: boolean;
     evaluator_auto_apply?: boolean;
   };

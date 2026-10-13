@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { Loader2, Network, ScrollText } from "lucide-react";
+import { Network, ScrollText } from "lucide-react";
 import type { GraphApiDocument } from "@supermemory/memory-graph";
+import { RowSkeleton, FetchError, Skeleton } from "@/components/common/loading";
 
 // Canvas-based; render client-side only.
 const MemoryGraph = dynamic(
@@ -11,8 +12,9 @@ const MemoryGraph = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="chat-loading" style={{ padding: 24 }}>
-        <Loader2 className="size-4 animate-spin" /> Loading graph…
+      <div style={{ height: 560, minHeight: 560 }} aria-busy="true" className="space-y-3 p-6">
+        <Skeleton className="h-8 w-1/3" />
+        <Skeleton className="h-[460px] w-full bg-muted/40" />
       </div>
     ),
   }
@@ -46,16 +48,41 @@ export function MemoryView() {
   const [graphError, setGraphError] = useState<Error | null>(null);
 
   useEffect(() => {
-    fetch("/api/memory/graph")
-      .then((r) => r.json())
-      .then((data: { documents?: GraphApiDocument[] }) => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/memory/graph");
+        if (!r.ok) throw new Error(`load failed (${r.status})`);
+        const data = (await r.json()) as { documents?: GraphApiDocument[] };
+        if (cancelled) return;
         setDocuments(data.documents ?? []);
         setGraphLoading(false);
-      })
-      .catch((err: Error) => {
-        setGraphError(err);
+      } catch (err) {
+        if (cancelled) return;
+        setGraphError(err as Error);
         setGraphLoading(false);
-      });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    setGraphLoading(true);
+    setGraphError(null);
+    (async () => {
+      try {
+        const r = await fetch("/api/memory/graph");
+        if (!r.ok) throw new Error(`load failed (${r.status})`);
+        const data = (await r.json()) as { documents?: GraphApiDocument[] };
+        setDocuments(data.documents ?? []);
+        setGraphLoading(false);
+      } catch (err) {
+        setGraphError(err as Error);
+        setGraphLoading(false);
+      }
+    })();
   }, []);
 
   return (
@@ -95,14 +122,22 @@ export function MemoryView() {
           <span className="mono">WHAT GOT ADDED</span>
         </div>
         <div className="item-list">
-          {graphLoading && (
-            <div className="chat-loading">
-              <Loader2 className="size-4 animate-spin" /> Loading memory log…
+          {graphLoading ? (
+            <div aria-busy="true">
+              <RowSkeleton />
+              <RowSkeleton />
+              <RowSkeleton />
             </div>
-          )}
-          {!graphLoading && documents.length === 0 && (
+          ) : null}
+          {!graphLoading && graphError ? (
+            <FetchError
+              message={`Couldn't load memory (${graphError.message.slice(0, 120)}). Retry.`}
+              onRetry={handleRetry}
+            />
+          ) : null}
+          {!graphLoading && !graphError && documents.length === 0 ? (
             <div className="panel-empty">Nothing memorized yet.</div>
-          )}
+          ) : null}
           {documents.map((d) => (
             <div key={d.id} className="item">
               <div className="item-body">

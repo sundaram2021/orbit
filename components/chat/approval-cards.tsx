@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Bot, Check, X, Loader2 } from "lucide-react";
 import { Approval } from "@/types/orbit-types";
+import { Skeleton, FetchError } from "@/components/common/loading";
 
 interface AgentInfo {
   id: string;
@@ -31,6 +32,8 @@ export function ApprovalCards() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [agents, setAgents] = useState<Record<string, AgentInfo>>({});
   const [deciding, setDeciding] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [decideError, setDecideError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -60,15 +63,17 @@ export function ApprovalCards() {
       }
     } catch {
       // approval cards must never break the chat
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     // Intentional: fetch approvals on mount, then poll + refresh events.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-    const t = setInterval(load, 10000);
-    const onRefresh = () => void load();
+    void load().catch(() => {});
+    const t = setInterval(() => void load().catch(() => {}), 10000);
+    const onRefresh = () => void load().catch(() => {});
     window.addEventListener("orbit:refresh", onRefresh);
     return () => {
       clearInterval(t);
@@ -78,14 +83,20 @@ export function ApprovalCards() {
 
   const decide = async (id: string, decision: "approved" | "rejected") => {
     setDeciding(id);
+    setDecideError(null);
     try {
-      await fetch("/api/approvals", {
+      const res = await fetch("/api/approvals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, decision }),
       });
-    } catch {
-      // decision failed — keep the card so the user can retry
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `decide failed (${res.status})`);
+      }
+    } catch (err) {
+      // Decision failed — keep the card so the user can retry, with a reason.
+      setDecideError((err as Error).message);
       setDeciding(null);
       return;
     }
@@ -106,10 +117,22 @@ export function ApprovalCards() {
     window.dispatchEvent(new Event("orbit:refresh"));
   };
 
+  if (isLoading) {
+    return (
+      <div className="approval-cards" aria-busy="true" aria-label="Pending approvals">
+        <div className="approval-card space-y-2 p-3">
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-8 w-full" />
+        </div>
+      </div>
+    );
+  }
+
   if (approvals.length === 0) return null;
 
   return (
     <div className="approval-cards" aria-label="Pending approvals">
+      {decideError ? <FetchError message={decideError} /> : null}
       {approvals.map((a) => {
         const agent = agents[a.ref_id];
         const busy = deciding === a.id;

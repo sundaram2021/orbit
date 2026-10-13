@@ -11,14 +11,15 @@ export async function middleware(request: NextRequest) {
   }
 
   const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.SUPABASE_URL ||
-    "https://qzzgrrlzlwobxpbvkyig.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const supabaseAnonKey =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.SUPABASE_PUBLISHABLE_KEY ||
-    "sb_publishable_4ZR6wf0nXA7DnIoH319XhQ_INDXRJQP";
+    process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("middleware: Supabase URL/anon key is not configured");
+    return NextResponse.redirect(new URL("/login?misconfigured=1", request.url));
+  }
 
   const response = NextResponse.next();
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -34,14 +35,21 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.redirect(new URL("/login", request.url));
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+    return response;
+  } catch {
+    // Auth backend unreachable: don't 500 the whole dashboard shell.
+    // Let the request through marked degraded; pages show retry banners.
+    const degraded = NextResponse.next();
+    degraded.headers.set("x-auth-degraded", "1");
+    return degraded;
   }
-  return response;
 }
 
 export const config = {

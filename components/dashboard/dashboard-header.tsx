@@ -22,6 +22,9 @@ export function DashboardHeader({ user, activeNav, onToggleSidebar }: DashboardH
   const [open, setOpen] = useState(false);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [activities, setActivities] = useState<OrbitActivity[]>([]);
+  const [notifLoading, setNotifLoading] = useState(true);
+  const [notifError, setNotifError] = useState<string | null>(null);
+  const [deciding, setDeciding] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -30,25 +33,39 @@ export function DashboardHeader({ user, activeNav, onToggleSidebar }: DashboardH
         fetch("/api/approvals?status=pending"),
         fetch("/api/activity?limit=10"),
       ]);
+      let failed = false;
       if (aRes.ok) {
         const data = (await aRes.json()) as { approvals: Approval[] };
         setApprovals(data.approvals ?? []);
+      } else {
+        failed = true;
       }
       if (actRes.ok) {
         const data = (await actRes.json()) as { activities: OrbitActivity[] };
         setActivities(data.activities ?? []);
+      } else {
+        failed = true;
       }
+      setNotifError(failed ? "Couldn't refresh notifications." : null);
     } catch {
-      // notifications stay empty on error
+      setNotifError("Couldn't load notifications. Check your connection.");
+    } finally {
+      setNotifLoading(false);
     }
   }, []);
+
+  const handleNotifRetry = useCallback(() => {
+    setNotifLoading(true);
+    setNotifError(null);
+    void load().catch(() => {});
+  }, [load]);
 
   useEffect(() => {
     // Fetch notifications on mount, then poll + refresh events.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-    const t = setInterval(load, 20000);
-    const onRefresh = () => void load();
+    void load().catch(() => {});
+    const t = setInterval(() => void load().catch(() => {}), 20000);
+    const onRefresh = () => void load().catch(() => {});
     window.addEventListener("orbit:refresh", onRefresh);
     const onClick = (e: MouseEvent) => {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
@@ -62,13 +79,25 @@ export function DashboardHeader({ user, activeNav, onToggleSidebar }: DashboardH
   }, [load]);
 
   const decide = async (id: string, decision: "approved" | "rejected") => {
-    await fetch("/api/approvals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, decision }),
-    });
-    setApprovals((prev) => prev.filter((a) => a.id !== id));
-    window.dispatchEvent(new Event("orbit:refresh"));
+    if (deciding) return;
+    setDeciding(id);
+    try {
+      const res = await fetch("/api/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, decision }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `decide failed (${res.status})`);
+      }
+      setApprovals((prev) => prev.filter((a) => a.id !== id));
+      window.dispatchEvent(new Event("orbit:refresh"));
+    } catch (err) {
+      setNotifError((err as Error).message);
+    } finally {
+      setDeciding(null);
+    }
   };
 
   const count = approvals.length;
@@ -115,7 +144,20 @@ export function DashboardHeader({ user, activeNav, onToggleSidebar }: DashboardH
           {open && (
             <div className="notif-dropdown">
               <div className="notif-head">Notifications</div>
-              {count === 0 && activities.length === 0 && (
+              {notifLoading ? (
+                <div className="notif-empty" aria-busy="true">
+                  <div className="animate-pulse rounded-md bg-muted/60 h-4 w-3/4 mx-auto" aria-hidden="true" />
+                </div>
+              ) : null}
+              {notifError ? (
+                <div className="notif-empty" role="alert">
+                  {notifError}{" "}
+                  <button type="button" onClick={handleNotifRetry} className="underline">
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+              {!notifLoading && !notifError && count === 0 && activities.length === 0 && (
                 <div className="notif-empty">All caught up. Agent proposals and updates will appear here.</div>
               )}
               {approvals.map((a) => (
@@ -125,10 +167,10 @@ export function DashboardHeader({ user, activeNav, onToggleSidebar }: DashboardH
                     <small>{new Date(a.created_at ?? "").toLocaleString()}</small>
                   </div>
                   <div className="notif-item-actions">
-                    <button type="button" aria-label="Approve" onClick={() => void decide(a.id, "approved")}>
+                    <button type="button" aria-label="Approve" disabled={deciding === a.id} onClick={() => void decide(a.id, "approved")}>
                       <Check className="size-3.5" />
                     </button>
-                    <button type="button" aria-label="Reject" onClick={() => void decide(a.id, "rejected")}>
+                    <button type="button" aria-label="Reject" disabled={deciding === a.id} onClick={() => void decide(a.id, "rejected")}>
                       <X className="size-3.5" />
                     </button>
                   </div>
