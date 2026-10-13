@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
-import { ScrollText, Loader2, Search, ChevronDown } from "lucide-react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { ScrollText, Search, ChevronDown } from "lucide-react";
+import { CardSkeleton, FetchError } from "@/components/common/loading";
 
 interface CustomizedPrompt {
   id: string;
@@ -16,19 +17,38 @@ interface CustomizedPrompt {
 export function PromptsView() {
   const [prompts, setPrompts] = useState<CustomizedPrompt[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const deferredQuery = React.useDeferredValue(query);
 
-  useEffect(() => {
-    fetch("/api/prompts")
-      .then((r) => r.json())
-      .then((data: { prompts: CustomizedPrompt[] }) => setPrompts(data.prompts ?? []))
-      .catch(() => setPrompts([]))
-      .finally(() => setIsLoading(false));
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch("/api/prompts");
+      if (!r.ok) throw new Error(`load failed (${r.status})`);
+      const data = (await r.json()) as { prompts: CustomizedPrompt[] };
+      setPrompts(data.prompts ?? []);
+      setLoadError(null);
+    } catch {
+      setLoadError("Couldn't load prompts. Check your connection and retry.");
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    setLoadError(null);
+    void load().catch(() => {});
+  }, [load]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load().catch(() => {});
+  }, [load]);
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     if (!q) return prompts;
     return prompts.filter(
       (p) =>
@@ -36,7 +56,7 @@ export function PromptsView() {
         p.kind.toLowerCase().includes(q) ||
         p.system_prompt.toLowerCase().includes(q)
     );
-  }, [prompts, query]);
+  }, [prompts, deferredQuery]);
 
   return (
     <div>
@@ -61,17 +81,22 @@ export function PromptsView() {
         />
       </div>
 
-      {isLoading && (
-        <div className="chat-loading">
-          <Loader2 className="size-4 animate-spin" /> Loading prompts…
-        </div>
-      )}
+      {loadError && !isLoading ? (
+        <FetchError message={loadError} onRetry={handleRetry} />
+      ) : null}
 
-      {!isLoading && filtered.length === 0 && (
+      {isLoading ? (
+        <div className="agent-list" aria-busy="true">
+          <CardSkeleton />
+          <CardSkeleton />
+        </div>
+      ) : null}
+
+      {!isLoading && !loadError && filtered.length === 0 && (
         <section className="panel"><div className="panel-empty">
           {prompts.length === 0
             ? "No customized prompts yet. Spawn an agent and its prompt will be listed here."
-            : `No prompts match "${query.trim()}".`}
+            : `No prompts match "${deferredQuery.trim()}".`}
         </div></section>
       )}
 

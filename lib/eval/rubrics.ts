@@ -1,4 +1,3 @@
-import { Octokit } from "@octokit/rest";
 import type { SubAgentKind } from "@/types/orbit-types";
 
 /** Per-kind rubrics: implementation vs review vs testing are judged differently. */
@@ -38,7 +37,8 @@ export async function fetchAgentDiff(opts: {
   base: string;
 }): Promise<{ diffStat: string; diff: string }> {
   const [o, r] = opts.repo.split("/");
-  const octokit = new Octokit({ auth: opts.token });
+  const { createOctokit } = await import("../octokit");
+  const octokit = await createOctokit(opts.token);
   try {
     const cmp = await octokit.repos.compareCommits({
       owner: o,

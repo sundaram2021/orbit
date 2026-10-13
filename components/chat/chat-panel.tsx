@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   SendHorizontal,
   Square,
@@ -83,17 +83,20 @@ async function fileToImageAttachment(file: File): Promise<ChatAttachment> {
 }
 
 export function ChatPanel({ kind, title, greeting, placeholder, suggestions, chat }: ChatPanelProps) {
-  const { messages, isLoading, isStreaming, activeStep, error, send, stop, activeRepo, setActiveRepo } = chat;
+  const { messages, isLoading, isStreaming, activeStep, error, send, stop, retryLast, lastFailed, activeRepo, setActiveRepo } = chat;
   const [input, setInput] = useState("");
   const [repos, setRepos] = useState<RepoOption[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
+  const [reposError, setReposError] = useState<string | null>(null);
   const [repoOpen, setRepoOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [pickerTab, setPickerTab] = useState<PickerTab>(null);
   const [pickerItems, setPickerItems] = useState<GithubItem[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
   const [pickerQuery, setPickerQuery] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [fileNotice, setFileNotice] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const repoBoxRef = useRef<HTMLDivElement>(null);
   const plusBoxRef = useRef<HTMLDivElement>(null);
@@ -134,19 +137,30 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     el.style.height = `${Math.min(160, Math.max(44, el.scrollHeight))}px`;
   }, []);
 
-  useEffect(() => {
-    autogrow();
-  }, [input, autogrow]);
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setInput(e.target.value);
+      autogrow();
+    },
+    [autogrow]
+  );
 
   useEffect(() => {
     if (kind !== "orchestrator") return;
     // Intentional: fetch repos on mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setReposLoading(true);
+    setReposError(null);
     fetch("/api/repos")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`repos failed (${r.status})`);
+        return r.json();
+      })
       .then((data: { repos?: RepoOption[] }) => setRepos(data.repos ?? []))
-      .catch(() => setRepos([]))
+      .catch(() => {
+        setRepos([]);
+        setReposError("Couldn't load repositories. Check GitHub connection.");
+      })
       .finally(() => setReposLoading(false));
   }, [kind]);
 
@@ -178,15 +192,21 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     if (!activeRepo) return;
     setPickerTab(tab);
     setPickerLoading(true);
+    setPickerError(null);
     setPickerItems([]);
     try {
       const res = await fetch(
         `/api/github/list?repo=${encodeURIComponent(activeRepo)}&type=${tab}`
       );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `list failed (${res.status})`);
+      }
       const data = (await res.json()) as { items?: GithubItem[] };
       setPickerItems(data.items ?? []);
-    } catch {
+    } catch (err) {
       setPickerItems([]);
+      setPickerError((err as Error).message);
     } finally {
       setPickerLoading(false);
     }
@@ -217,8 +237,9 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
           ? text.slice(0, MAX_FILE_CHARS) + `\n…(truncated ${text.length - MAX_FILE_CHARS} chars)`
           : text;
       setAttachments((prev) => [...prev, { type: "file", name: file.name, content: truncated }]);
+      setFileNotice(null);
     } catch {
-      // unreadable file — ignore
+      setFileNotice(`Couldn't read ${file.name} — skipped.`);
     }
     setPlusOpen(false);
   };
@@ -227,18 +248,23 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
     if (imageFiles.length === 0) return;
     const room = MAX_IMAGES - attachments.filter((a) => a.type === "image").length;
-    if (room <= 0) return;
+    if (room <= 0) {
+      setFileNotice(`Image limit reached (${MAX_IMAGES}). Remove one to add more.`);
+      return;
+    }
+    let skipped = 0;
     for (const file of imageFiles.slice(0, room)) {
-      if (file.size > MAX_IMAGE_BYTES * 3) continue; // reject absurdly large originals
+      if (file.size > MAX_IMAGE_BYTES * 3) { skipped++; continue; } // reject absurdly large originals
       try {
         const att = await fileToImageAttachment(file);
         // Approx guard: downscaled JPEG data URL should stay well under ~1.5MB.
-        if ((att.dataUrl?.length ?? 0) > 2_000_000) continue;
+        if ((att.dataUrl?.length ?? 0) > 2_000_000) { skipped++; continue; }
         setAttachments((prev) => [...prev, att]);
       } catch {
-        // unreadable image — skip
+        skipped++;
       }
     }
+    setFileNotice(skipped > 0 ? `Skipped ${skipped} image${skipped === 1 ? "" : "s"} (too large or unreadable).` : null);
   };
 
   /** Paste screenshots / copied images straight into the composer. */
@@ -285,16 +311,27 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
 
   const isLanding = messages.length === 0 && !isLoading;
   const hasRepo = kind === "orchestrator" && !!activeRepo;
+  const lastAssistantIdx = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") return i;
+    }
+    return -1;
+  }, [messages]);
 
-  const filteredPicker = pickerQuery.trim()
-    ? pickerItems.filter(
-        (i) =>
-          i.title.toLowerCase().includes(pickerQuery.toLowerCase()) ||
-          String(i.number).includes(pickerQuery.trim())
-      )
-    : pickerItems;
+  const filteredPicker = useMemo(() => {
+    const q = pickerQuery.trim().toLowerCase();
+    if (!q) return pickerItems;
+    return pickerItems.filter(
+      (i) => i.title.toLowerCase().includes(q) || String(i.number).includes(q)
+    );
+  }, [pickerItems, pickerQuery]);
 
-  const repoSelector = kind === "orchestrator" && (
+  const selectedKeys = useMemo(
+    () => new Set(attachments.map((a) => `${a.type}:${a.number}`)),
+    [attachments]
+  );
+
+  const repoSelector = kind === "orchestrator" ? (
     <div className="orbit-repo" ref={repoBoxRef}>
       <button
         type="button"
@@ -310,8 +347,40 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
       </button>
       {repoOpen && (
         <div className="orbit-repo-menu" role="listbox">
-          {reposLoading && <div className="repo-empty">Loading repositories…</div>}
-          {!reposLoading && repos.length === 0 && (
+          {reposLoading ? (
+            <div aria-busy="true" className="space-y-1.5 p-2">
+              <div className="animate-pulse rounded-md bg-muted/60 h-8 w-full" aria-hidden="true" />
+              <div className="animate-pulse rounded-md bg-muted/60 h-8 w-full" aria-hidden="true" />
+              <div className="animate-pulse rounded-md bg-muted/60 h-8 w-full" aria-hidden="true" />
+            </div>
+          ) : null}
+          {!reposLoading && reposError ? (
+            <div className="repo-empty" role="alert">
+              {reposError}{" "}
+              <button
+                type="button"
+                className="underline"
+                onClick={() => {
+                  setReposLoading(true);
+                  setReposError(null);
+                  fetch("/api/repos")
+                    .then((r) => {
+                      if (!r.ok) throw new Error();
+                      return r.json();
+                    })
+                    .then((data: { repos?: RepoOption[] }) => setRepos(data.repos ?? []))
+                    .catch(() => {
+                      setRepos([]);
+                      setReposError("Couldn't load repositories. Check GitHub connection.");
+                    })
+                    .finally(() => setReposLoading(false));
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
+          {!reposLoading && !reposError && repos.length === 0 && (
             <div className="repo-empty">No repositories found. Check GitHub connection.</div>
           )}
           {activeRepo && (
@@ -335,9 +404,9 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
         </div>
       )}
     </div>
-  );
+  ) : null;
 
-  const attachmentChips = attachments.length > 0 && (
+  const attachmentChips = attachments.length > 0 ? (
     <div className="orbit-files">
       {attachments.map((a, i) => (
         <span key={`${a.type}-${a.number ?? a.name}-${i}`} className="orbit-file">
@@ -366,10 +435,10 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
         </span>
       ))}
     </div>
-  );
+  ) : null;
 
   // "+" menu inside the composer: upload file always; issue/PR only when a repo is picked.
-  const plusMenu = kind === "orchestrator" && (
+  const plusMenu = kind === "orchestrator" ? (
     <div className="orbit-plus" ref={plusBoxRef}>
       <button
         type="button"
@@ -441,17 +510,33 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
                 aria-label={`Search ${pickerTab}`}
               />
               <div className="composer-picker-list">
-                {pickerLoading && <div className="repo-empty">Loading…</div>}
-                {!pickerLoading && filteredPicker.length === 0 && (
+                {pickerLoading ? (
+                  <div aria-busy="true" className="space-y-1.5 p-2">
+                    <div className="animate-pulse rounded-md bg-muted/60 h-10 w-full" aria-hidden="true" />
+                    <div className="animate-pulse rounded-md bg-muted/60 h-10 w-full" aria-hidden="true" />
+                    <div className="animate-pulse rounded-md bg-muted/60 h-10 w-full" aria-hidden="true" />
+                  </div>
+                ) : null}
+                {!pickerLoading && pickerError ? (
+                  <div className="repo-empty" role="alert">
+                    {pickerError}{" "}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => void openPicker(pickerTab)}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : null}
+                {!pickerLoading && !pickerError && filteredPicker.length === 0 && (
                   <div className="repo-empty">
                     No open {pickerTab} in {activeRepo}.
                   </div>
                 )}
                 {filteredPicker.map((item) => {
                   const type = pickerTab === "issues" ? "issue" : "pr";
-                  const selected = attachments.some(
-                    (a) => a.type === type && a.number === item.number
-                  );
+                  const selected = selectedKeys.has(`${type}:${item.number}`);
                   return (
                     <button
                       key={item.number}
@@ -496,7 +581,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
       )}
       <input ref={fileRef} type="file" hidden onChange={handleFilePicked} accept="image/*,.txt,.md,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.yml,.yaml" />
     </div>
-  );
+  ) : null;
 
   const composer = (
     <div className="orbit-composer-zone">
@@ -508,7 +593,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
           ref={inputRef}
           rows={1}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInputChange}
           onKeyDown={onKeyDown}
           onPaste={handlePaste}
           placeholder={
@@ -538,6 +623,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
           </button>
         )}
       </form>
+      {fileNotice ? <p className="orbit-hint" role="status">{fileNotice}</p> : null}
       <p className="orbit-hint">Enter to send · Shift+Enter for a new line · Orbit acts on your GitHub</p>
     </div>
   );
@@ -550,9 +636,9 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
           {activeRepo ? `Working in ${activeRepo}` : "Orchestrator ready"}
         </div>
         <h2>{greeting}</h2>
-        {kind === "orchestrator" && !activeRepo && (
+        {kind === "orchestrator" && !activeRepo ? (
           <p className="orbit-landing-sub">Pick a repository below, then describe the task.</p>
-        )}
+        ) : null}
         <div className="orbit-landing-box">
           {kind === "orchestrator" && (
             <div className="orbit-landing-repo">{repoSelector}</div>
@@ -574,12 +660,19 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
             </button>
           ))}
         </div>
-        {error && <div className="orbit-error">{error}</div>}
+        {error ? (
+          <div className="orbit-error" role="alert">
+            {error}{" "}
+            {lastFailed ? (
+              <button type="button" className="underline" onClick={() => void retryLast()}>
+                Retry
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     );
   }
-
-  const lastAssistantIdx = messages.map((m) => m.role).lastIndexOf("assistant");
 
   return (
     <section className="orbit-thread" aria-label={title}>
@@ -599,23 +692,33 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
       </div>
 
       <div className="orbit-scroll">
-        {isLoading && (
-          <div className="orbit-loading">
-            <Loader2 className="size-4 animate-spin" /> Loading conversation…
+        {isLoading ? (
+          <div aria-busy="true" className="space-y-3">
+            <div className="flex justify-end">
+              <div className="animate-pulse rounded-2xl bg-muted/60 h-12 w-2/3" aria-hidden="true" />
+            </div>
+            <div className="flex gap-2">
+              <div className="animate-pulse rounded-full bg-muted/60 size-8 shrink-0" aria-hidden="true" />
+              <div className="flex-1 space-y-2">
+                <div className="animate-pulse rounded-md bg-muted/60 h-4 w-1/4" aria-hidden="true" />
+                <div className="animate-pulse rounded-md bg-muted/60 h-16 w-full" aria-hidden="true" />
+              </div>
+            </div>
           </div>
-        )}
+        ) : null}
         {messages.map((m, mi) =>
           m.role === "user" ? (
-            <div key={m.id} className="orbit-user-row">
+            <div key={m.id} className="orbit-user-row" style={{ contentVisibility: "auto", containIntrinsicSize: "0 120px" }}>
               <div className="orbit-user-bubble">
                 <div className="orbit-user-lines">
                   {m.content.split("\n").map((line, i) => {
                     const trimmed = line.trim();
+                    if (!trimmed.endsWith("]") || trimmed.length > 120)
+                      return <p key={i}>{line || " "}</p>;
                     if (
-                      (trimmed.startsWith("[issue #") ||
-                        trimmed.startsWith("[pr #") ||
-                        trimmed.startsWith("[file ")) &&
-                      trimmed.endsWith("]")
+                      trimmed.startsWith("[issue #") ||
+                      trimmed.startsWith("[pr #") ||
+                      trimmed.startsWith("[file ")
                     ) {
                       return (
                         <span key={i} className="orbit-ref-chip">
@@ -633,7 +736,7 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
               </span>
             </div>
           ) : (
-            <div key={m.id} className="orbit-ai-row">
+            <div key={m.id} className="orbit-ai-row" style={{ contentVisibility: "auto", containIntrinsicSize: "0 120px" }}>
               <span className="orbit-avatar orbit-avatar-ai" aria-hidden="true">
                 <Bot className="size-4" />
               </span>
@@ -659,12 +762,12 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
                     activeStep={activeStep || "Orchestrator is reasoning and analyzing repository..."}
                   />
                 ) : null}
-                {isStreaming && mi === messages.length - 1 && activeStep && m.content && (
+                {isStreaming && mi === messages.length - 1 && activeStep && m.content ? (
                   <div className="orbit-now">
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <span className="inline-flex animate-spin"><Loader2 className="size-3.5" /></span>
                     <span>{activeStep}</span>
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           )
@@ -672,18 +775,27 @@ export function ChatPanel({ kind, title, greeting, placeholder, suggestions, cha
         <div ref={bottomRef} />
       </div>
 
-      {error && <div className="orbit-error">{error}</div>}
+      {error ? (
+        <div className="orbit-error" role="alert">
+          {error}{" "}
+          {lastFailed ? (
+            <button type="button" className="underline" onClick={() => void retryLast()}>
+              Retry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="orbit-bottom">
         {kind === "orchestrator" && <ApprovalCards />}
         <div className="orbit-toolbar">
           {repoSelector}
-          {isStreaming && activeStep && (
+          {isStreaming && activeStep ? (
             <span className="orbit-toolbar-live" title={activeStep}>
-              <Loader2 className="size-3 animate-spin" />
+              <span className="inline-flex animate-spin"><Loader2 className="size-3" /></span>
               {activeStep.slice(0, 60)}
             </span>
-          )}
+          ) : null}
         </div>
         {composer}
       </div>

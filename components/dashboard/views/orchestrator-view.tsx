@@ -35,15 +35,16 @@ export function OrchestratorView() {
         <button
           id="new-task-btn"
           type="button"
+          disabled={chat.isCreating}
           onClick={() => {
             // New-task workflow: start a fresh centered chat. The user picks
             // a repo, optionally attaches file/issue/PR via "+", then prompts.
             void chat.newChat();
           }}
-          className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2"
+          className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2 disabled:opacity-60"
         >
           <Plus className="size-4" />
-          New task
+          {chat.isCreating ? "Starting…" : "New task"}
         </button>
       </div>
 
@@ -62,6 +63,9 @@ export function OrchestratorView() {
         threads={chat.threads}
         activeThreadId={chat.threadId}
         isLoading={chat.isLoading && chat.threads.length === 0}
+        threadsError={chat.threadsError}
+        onRetryThreads={chat.retryThreads}
+        isCreating={chat.isCreating}
         onSelect={(id: string) => {
           void chat.selectThread(id);
           setHistoryOpen(false);

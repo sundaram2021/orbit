@@ -37,34 +37,31 @@ export async function evaluateAgent(
   if (!agent) return;
   const kind = agent.kind as SubAgentKind;
 
-  // Evidence 1: kind template (base craft).
+  // Evidence 1 + Evidence 4 in parallel (Supabase template vs GitHub diff).
+  const testsPassed = ctx.testsPassed === true;
+  const templatePromise = supabase
+    .from("agent_templates")
+    .select("system_prompt")
+    .eq("kind", kind)
+    .single();
+  const diffPromise =
+    ctx.token && ctx.repo && ctx.branch && ctx.base
+      ? fetchAgentDiff({
+          token: ctx.token,
+          repo: ctx.repo,
+          branch: ctx.branch,
+          base: ctx.base,
+        }).then(
+          (d) => d.diffStat,
+          () => ""
+        )
+      : Promise.resolve("");
+  const [tplRes, diffStat] = await Promise.all([templatePromise, diffPromise]);
   let template = "";
   try {
-    const { data: tpl } = await supabase
-      .from("agent_templates")
-      .select("system_prompt")
-      .eq("kind", kind)
-      .single();
-    template = ((tpl as { system_prompt?: string } | null)?.system_prompt ?? "").slice(0, 2000);
+    template = (((tplRes as { data?: unknown }).data as { system_prompt?: string } | null)?.system_prompt ?? "").slice(0, 2000);
   } catch {
     template = "";
-  }
-
-  // Evidence 4 (ground truth first): real diff + test flag.
-  const testsPassed = ctx.testsPassed === true;
-  let diffStat = "";
-  if (ctx.token && ctx.repo && ctx.branch && ctx.base) {
-    try {
-      const diff = await fetchAgentDiff({
-        token: ctx.token,
-        repo: ctx.repo,
-        branch: ctx.branch,
-        base: ctx.base,
-      });
-      diffStat = diff.diffStat;
-    } catch {
-      diffStat = "";
-    }
   }
   const result = (agent.result ?? {}) as {
     repo?: string;
@@ -138,7 +135,7 @@ export async function evaluateAgent(
     rubric[d] = Number.isFinite(v) ? Math.max(0, Math.min(25, Math.round(v))) : 0;
   }
 
-  const { data: evaluation } = await supabase
+  const { data: evaluation, error: evalInsertError } = await supabase
     .from("evaluations")
     .insert([
       {
@@ -152,9 +149,15 @@ export async function evaluateAgent(
     ])
     .select("id")
     .single();
+  if (evalInsertError) {
+    console.warn("evaluation insert failed:", evalInsertError.message);
+  }
   const evaluationId = (evaluation as { id?: string } | null)?.id;
 
-  await supabase.from("sub_agents").update({ eval_score: score }).eq("id", agentId);
+  const { error: scoreError } = await supabase.from("sub_agents").update({ eval_score: score }).eq("id", agentId);
+  if (scoreError) {
+    console.warn("eval_score update failed:", scoreError.message);
+  }
 
   // Global memory update: result + mistakes so future runs avoid repeats.
   const lesson = mistakes ? ` Mistakes to avoid next time: ${mistakes}` : "";

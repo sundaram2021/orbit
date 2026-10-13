@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
-import { Octokit } from "@octokit/rest";
 import { getAnthropicClient, orbitModel } from "../ai";
 import { getUserSettings } from "../orchestrator/spawn";
 import { memoryRemember } from "../memory";
@@ -43,14 +42,15 @@ const SUB_AGENT_TOOLS = [
   "create_pr",
 ];
 
-let toolsRegistered = false;
+let subAgentToolsInit: Promise<void> | null = null;
 function ensureSubAgentTools(): void {
-  if (toolsRegistered) return;
-  registerSandboxFileTools();
-  registerSandboxExecTools();
-  registerGithubTools();
-  registerWebTools();
-  toolsRegistered = true;
+  if (subAgentToolsInit) return;
+  subAgentToolsInit = (async () => {
+    registerSandboxFileTools();
+    registerSandboxExecTools();
+    registerGithubTools();
+    registerWebTools();
+  })();
 }
 
 function slugify(title: string): string {
@@ -86,20 +86,37 @@ async function fail(
   message: string,
   sandbox?: { id: string; mock: boolean }
 ): Promise<void> {
-  // Never leak quota: a created sandbox is always destroyed on failure.
-  if (sandbox && !sandbox.mock) {
-    await destroySandbox(sandbox);
+  // fail() itself must never throw — it runs inside catch blocks, and a
+  // throw here would leave the agent stuck in `running` with no explanation.
+  try {
+    // Never leak quota: a created sandbox is always destroyed on failure.
+    if (sandbox && !sandbox.mock) {
+      try {
+        await destroySandbox(sandbox);
+      } catch (err) {
+        console.warn("fail() destroy failed:", err);
+      }
+    }
+    let scrubbed = message;
+    try {
+      const { scrubSecrets } = await import("../eval/gates");
+      scrubbed = scrubSecrets(message);
+    } catch {
+      // keep raw message
+    }
+    await Promise.allSettled([
+      supabase.from("sub_agents").update({ status: "failed" }).eq("id", agent.id),
+      agent.event_id
+        ? supabase.from("github_events").update({ status: "ignored" }).eq("id", agent.event_id)
+        : Promise.resolve(),
+      traceSpan(traceId, { name: "failed", detail: scrubbed }),
+      supabase.from("activities").insert([
+        { user_id: agent.user_id, title: `Agent failed: ${agent.title}`, description: scrubbed, type: "event" },
+      ]),
+    ]);
+  } catch (err) {
+    console.error("fail() bookkeeping failed:", err);
   }
-  const { scrubSecrets } = await import("../eval/gates");
-  message = scrubSecrets(message);
-  await supabase.from("sub_agents").update({ status: "failed" }).eq("id", agent.id);
-  if (agent.event_id) {
-    await supabase.from("github_events").update({ status: "ignored" }).eq("id", agent.event_id);
-  }
-  await traceSpan(traceId, { name: "failed", detail: message });
-  await supabase.from("activities").insert([
-    { user_id: agent.user_id, title: `Agent failed: ${agent.title}`, description: message, type: "event" },
-  ]);
 }
 
 /**
@@ -111,8 +128,16 @@ export async function runSubAgent(
   userId: string,
   agentId: string
 ): Promise<void> {
-  const { data } = await supabase.from("sub_agents").select("*").eq("id", agentId).single();
-  const agent = data as SubAgent | null;
+  let agent: SubAgent | null;
+  let traceId = agentId;
+  try {
+    const { data, error } = await supabase.from("sub_agents").select("*").eq("id", agentId).single();
+    if (error) throw new Error(`agent lookup failed: ${error.message}`);
+    agent = data as SubAgent | null;
+  } catch (err) {
+    console.error("runSubAgent lookup failed:", err);
+    return;
+  }
   if (!agent || agent.status === "completed" || agent.status === "failed") return;
   // Atomic claim: only one runner proceeds (awaiting_approval → running).
   const { data: claimed } = await supabase
@@ -123,15 +148,24 @@ export async function runSubAgent(
     .select("id");
   if (!claimed || (claimed as unknown[]).length === 0) return;
   agent.status = "running";
-  const traceId = agent.trace_id ?? agentId;
+  traceId = agent.trace_id ?? agentId;
 
-  const token = await getGithubToken(supabase, userId);
+  let token: string | null;
+  let settings: Awaited<ReturnType<typeof getUserSettings>>;
+  try {
+    [token, settings] = await Promise.all([
+      getGithubToken(supabase, userId),
+      getUserSettings(supabase, userId),
+    ]);
+  } catch (err) {
+    await fail(supabase, agent, traceId, `Couldn't load run prerequisites: ${(err as Error).message}. Retry.`);
+    return;
+  }
   if (!token) {
     await fail(supabase, agent, traceId, "GitHub not connected — reconnect GitHub to run agents.");
     return;
   }
 
-  const settings = await getUserSettings(supabase, userId);
   await supabase.from("sub_agents").update({ status: "running" }).eq("id", agentId);
   if (agent.event_id) {
     await supabase.from("github_events").update({ status: "running" }).eq("id", agent.event_id);
@@ -348,10 +382,22 @@ export async function runSubAgent(
     // Persist the execution log for the evaluator (ignored if v2 migration pending).
     await supabase.from("sub_agents").update({ run_log: runLogText }).eq("id", agentId);
 
-    const octokit = new Octokit({ auth: token });
-    const [o, r] = repoFull.split("/");
-    const { data: repoInfo } = await octokit.repos.get({ owner: o, repo: r });
-    const base = repoInfo.default_branch;
+    const { createOctokit, parseRepo: parseRepoStrict, githubErrorMessage } = await import("../octokit");
+    const octokit = await createOctokit(token);
+    const parsedRepo = parseRepoStrict(repoFull);
+    if (!parsedRepo) {
+      await fail(supabase, agent, traceId, `Bad repo in task: ${repoFull}.`);
+      return;
+    }
+    const { owner: o, name: r } = parsedRepo;
+    let base: string;
+    try {
+      const { data: repoInfo } = await octokit.repos.get({ owner: o, repo: r });
+      base = repoInfo.default_branch;
+    } catch (err) {
+      await fail(supabase, agent, traceId, `Repo inaccessible (${githubErrorMessage(err)}). Check access and retry.`);
+      return;
+    }
 
     // Empty branch (work already done / nothing to change) → complete
     // gracefully instead of failing on an empty-diff PR.
@@ -360,7 +406,23 @@ export async function runSubAgent(
       `cd ${workdir} && git rev-list --count origin/${base}..HEAD 2>/dev/null || echo 1`,
       { workingDir: workdir }
     );
-    const isEmpty = ahead.stdout.trim() === "0";
+    const aheadOut = ahead.stdout.trim();
+    // Empty output (exec failure) is "unknown", not "non-empty" — re-check
+    // once rather than pushing a possibly-empty branch or opening an empty PR.
+    let isEmpty = aheadOut === "0";
+    if (aheadOut === "" || ahead.timedOut) {
+      const recheck = await sandboxExec(
+        sandbox,
+        `cd ${workdir} && git rev-list --count origin/${base}..HEAD 2>/dev/null || echo 1`,
+        { workingDir: workdir }
+      );
+      const reOut = recheck.stdout.trim();
+      if (reOut === "" || recheck.timedOut) {
+        await fail(supabase, agent, traceId, "Couldn't verify branch state (sandbox exec timed out). Retry.");
+        return;
+      }
+      isEmpty = reOut === "0";
+    }
     if (isEmpty) {
       await writeResult(supabase, agentId, { repo: repoFull, branch });
       await linkIssueResult(supabase, agent);
@@ -428,7 +490,29 @@ export async function runSubAgent(
           prNumber = found.number;
           await traceSpan(traceId, { name: "pr_adopted", detail: `#${prNumber} already existed on ${branch}` });
         } else {
-          throw err;
+          // Push succeeded but PR open failed (rate limit, permissions):
+          // don't fail the run and orphan the branch — queue a publish_pr
+          // approval so the user can retry the PR step.
+          await writeResult(supabase, agentId, { repo: repoFull, branch, pushed: true });
+          await supabase.from("approvals").insert([
+            {
+              user_id: userId,
+              kind: "publish_pr",
+              ref_id: JSON.stringify({ agentId, repo: repoFull, branch, base, summary, testsPassed, sandboxId: sandbox.id }),
+              status: "pending",
+            },
+          ]);
+          await traceSpan(traceId, { name: "pr_open_failed", detail: githubErrorMessage(err) });
+          await supabase.from("activities").insert([
+            {
+              user_id: userId,
+              title: `PR open failed: ${agent.title}`,
+              description: `Branch ${branch} is pushed. ${githubErrorMessage(err)} Approve to retry opening the PR.`,
+              type: "pr",
+            },
+          ]);
+          await supabase.from("sub_agents").update({ status: "running", run_log: runLogText }).eq("id", agentId);
+          return;
         }
       }
       await traceSpan(traceId, { name: "pr_opened", detail: `#${prNumber}` });
@@ -497,8 +581,9 @@ export async function runSubAgent(
   }
 }
 
+const REPO_RE = /Repo:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/;
 function extractRepo(systemPrompt: string): string | null {
-  const m = systemPrompt.match(/Repo:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/);
+  const m = REPO_RE.exec(systemPrompt);
   return m ? m[1] : null;
 }
 
@@ -586,5 +671,7 @@ async function finishCompleted(
   ]);
   // Fire-and-forget evaluation with the full execution context.
   const { evaluateAgent } = await import("../eval/evaluate");
-  void evaluateAgent(supabase, userId, agent.id, summary, opts.runLog ?? "", opts.evalCtx ?? { testsPassed: false });
+  void evaluateAgent(supabase, userId, agent.id, summary, opts.runLog ?? "", opts.evalCtx ?? { testsPassed: false }).catch(
+    (err) => console.error("evaluateAgent failed:", err)
+  );
 }

@@ -1,5 +1,14 @@
 import type { Metadata } from "next";
+import { Geist, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+
+const geist = Geist({ subsets: ["latin"], display: "swap", variable: "--font-geist" });
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  display: "swap",
+  variable: "--font-plex-mono",
+});
 
 export const metadata: Metadata = {
   title: "Orbit — Your autonomous software factory",
@@ -13,13 +22,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark antialiased" suppressHydrationWarning>
-      <head>
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Geist:wght@400;450;500;550;600;650;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
-        />
-      </head>
+    <html lang="en" className={`dark antialiased ${geist.variable} ${plexMono.variable}`} suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );

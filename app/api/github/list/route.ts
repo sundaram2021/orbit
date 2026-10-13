@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { Octokit } from "@octokit/rest";
 import { createOrbitServerClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-service";
+import { createOctokit, parseRepo, githubErrorMessage } from "@/lib/octokit";
 
 export interface GithubListItem {
   number: number;
@@ -27,13 +27,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const repo = (url.searchParams.get("repo") ?? "").trim();
   const type = (url.searchParams.get("type") ?? "issues").trim();
-  if (!repo || !repo.includes("/")) {
+  const parsed = parseRepo(repo);
+  if (!parsed) {
     return NextResponse.json({ error: "repo must be owner/name" }, { status: 400 });
   }
+  const { owner, name } = parsed;
   if (type !== "issues" && type !== "prs") {
     return NextResponse.json({ error: "type must be issues or prs" }, { status: 400 });
   }
-  const [owner, name] = repo.split("/");
 
   const svc = createServiceClient();
   const { data: conn } = await svc
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
   if (!token) return NextResponse.json({ items: [], error: "github not connected" });
 
   try {
-    const octokit = new Octokit({ auth: token });
+    const octokit = await createOctokit(token);
     if (type === "prs") {
       const prs = await octokit.pulls.list({
         owner,
@@ -86,6 +87,6 @@ export async function GET(request: Request) {
       }));
     return NextResponse.json({ items });
   } catch (err) {
-    return NextResponse.json({ items: [], error: (err as Error).message.slice(0, 200) });
+    return NextResponse.json({ items: [], error: githubErrorMessage(err) }, { status: 502 });
   }
 }

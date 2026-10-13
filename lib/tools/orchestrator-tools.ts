@@ -46,12 +46,13 @@ export function registerOrchestratorTools(): void {
     },
     permission: "auto",
     handler: async (input, ctx) => {
-      const { data: agent } = await ctx.supabase
+      const { data: agent, error } = await ctx.supabase
         .from("sub_agents")
         .select("*")
         .eq("id", input.agent_id)
         .eq("user_id", ctx.userId)
         .single();
+      if (error) return { ok: false, output: `Lookup failed: ${error.message}. Retry.` };
       if (!agent) return { ok: false, output: "Agent not found." };
       const { data: evaluation } = await ctx.supabase
         .from("evaluations")
@@ -86,22 +87,23 @@ export function registerOrchestratorTools(): void {
     },
     permission: "auto",
     handler: async (input, ctx) => {
-      const { data: agent } = await ctx.supabase
+      const { data: agent, error } = await ctx.supabase
         .from("sub_agents")
         .select("id,status,steering")
         .eq("id", input.agent_id)
         .eq("user_id", ctx.userId)
         .single();
+      if (error) return { ok: false, output: `Lookup failed: ${error.message}. Retry.` };
       if (!agent) return { ok: false, output: "Agent not found." };
       if (agent.status !== "running") {
         return { ok: false, output: `Agent is ${agent.status} — steering only works while running.` };
       }
       const next = `${agent.steering ?? ""}\n[Steering @ ${new Date().toISOString()}] ${input.instruction}`.slice(-4000);
-      const { error } = await ctx.supabase
+      const { error: updateError } = await ctx.supabase
         .from("sub_agents")
         .update({ steering: next })
         .eq("id", input.agent_id);
-      if (error) return { ok: false, output: `Steering not stored: ${error.message}` };
+      if (updateError) return { ok: false, output: `Steering not stored: ${updateError.message}` };
       return { ok: true, output: "Instruction queued — the agent picks it up at its next step." };
     },
   });
@@ -117,25 +119,30 @@ export function registerOrchestratorTools(): void {
     },
     permission: "auto",
     handler: async (input, ctx) => {
-      const { data: agent } = await ctx.supabase
+      const { data: agent, error } = await ctx.supabase
         .from("sub_agents")
         .select("id,status,sandbox_id,event_id,title")
         .eq("id", input.agent_id)
         .eq("user_id", ctx.userId)
         .single();
+      if (error) return { ok: false, output: `Cancel failed: ${error.message}. Retry.` };
       if (!agent) return { ok: false, output: "Agent not found." };
       if (agent.status === "completed") return { ok: false, output: "Agent already completed." };
-      if (agent.sandbox_id) {
-        await destroySandbox({ id: agent.sandbox_id as string, mock: false });
-      }
+      // Mark cancelled first so the UI resolves immediately; sandbox
+      // teardown happens in the background and never blocks the response.
       await ctx.supabase.from("sub_agents").update({ status: "failed" }).eq("id", input.agent_id);
       if (agent.event_id) {
         await ctx.supabase.from("github_events").update({ status: "ignored" }).eq("id", agent.event_id);
       }
+      if (agent.sandbox_id) {
+        void destroySandbox({ id: agent.sandbox_id as string, mock: false }).catch((err) =>
+          console.warn("cancel destroy failed:", err)
+        );
+      }
       await ctx.supabase.from("activities").insert([
         { user_id: ctx.userId, title: `Agent cancelled: ${agent.title}`, description: "Stopped by the orchestrator.", type: "event" },
       ]);
-      return { ok: true, output: `Cancelled ${agent.title}; sandbox destroyed.` };
+      return { ok: true, output: `Cancelled ${agent.title}; sandbox teardown in progress.` };
     },
   });
 

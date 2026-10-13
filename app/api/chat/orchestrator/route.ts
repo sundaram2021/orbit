@@ -12,13 +12,14 @@ import { registerWebTools } from "@/lib/tools/web";
 
 import { buildOrchestratorSystemPrompt } from "@/lib/orchestrator/system-prompt";
 
-let orchestratorToolsRegistered = false;
+let orchestratorToolsInit: Promise<void> | null = null;
 function ensureOrchestratorTools(): void {
-  if (orchestratorToolsRegistered) return;
-  registerOrchestratorTools();
-  registerGithubTools();
-  registerWebTools();
-  orchestratorToolsRegistered = true;
+  if (orchestratorToolsInit) return;
+  orchestratorToolsInit = (async () => {
+    registerOrchestratorTools();
+    registerGithubTools();
+    registerWebTools();
+  })();
 }
 
 export const maxDuration = 120;
@@ -51,7 +52,7 @@ async function getThread(
   supabase: Awaited<ReturnType<typeof createOrbitServerClient>>,
   userId: string,
   threadId?: string
-) {
+): Promise<string> {
   // Explicit thread (verified to belong to the user).
   if (threadId) {
     const { data: owned } = await supabase
@@ -75,12 +76,16 @@ async function getThread(
   if ((existing as { id?: string } | null)?.id) {
     return (existing as { id: string }).id;
   }
-  const { data: created } = await supabase
+  const { data: created, error } = await supabase
     .from("chat_threads")
     .insert([{ user_id: userId, kind: "orchestrator", title: "New conversation" }])
     .select("id")
     .single();
-  return (created as { id: string }).id;
+  const createdId = (created as { id?: string } | null)?.id;
+  if (error || !createdId) {
+    throw new Error(`Could not start conversation: ${error?.message ?? "database unavailable"}`);
+  }
+  return createdId;
 }
 
 function titleFor(message: string): string {
@@ -101,10 +106,24 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const userId = user.id;
 
-  const { message, repo: activeRepo, thread_id: requestedThread, attachments } =
-    (await request.json()) as ChatBody;
-  if (!message?.trim() && (!attachments || attachments.length === 0)) {
+  const body = (await request.json().catch(() => null)) as ChatBody | null;
+  const message = (body?.message ?? "").trim();
+  const activeRepo = body?.repo;
+  const requestedThread = body?.thread_id;
+  const attachments = body?.attachments;
+  if (!message && (!attachments || attachments.length === 0)) {
     return NextResponse.json({ error: "empty message" }, { status: 400 });
+  }
+  try {
+    const { isAiConfigured } = await import("@/lib/ai");
+    if (!isAiConfigured()) {
+      return NextResponse.json(
+        { error: "AI is not configured. Set AI_API_KEY and retry.", retryable: false },
+        { status: 503 }
+      );
+    }
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 503 });
   }
   const selectedRepo = (activeRepo ?? "").trim();
   const incoming = (attachments ?? []).filter((a) => a && a.type) as ChatAttachmentIn[];
@@ -129,7 +148,15 @@ export async function POST(request: Request) {
         | "image/webp",
     }));
 
-  const threadId = await getThread(supabase, userId, requestedThread);
+  let threadId: string;
+  try {
+    threadId = await getThread(supabase, userId, requestedThread);
+  } catch (err) {
+    return NextResponse.json(
+      { error: (err as Error).message, retryable: true },
+      { status: 503 }
+    );
+  }
   const userStoredContent = [
     message,
     ...incoming.map((a) =>
@@ -142,22 +169,31 @@ export async function POST(request: Request) {
   ]
     .filter(Boolean)
     .join("\n");
-  await supabase.from("chat_messages").insert([{ thread_id: threadId, role: "user", content: userStoredContent }]);
-  // Touch recency + auto-title untitled threads from the first message.
-  await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
+  // Persist the user message best-effort: a history-write failure must not
+  // 500 the whole request (the in-memory content still drives this turn).
+  const historyWrites = await Promise.allSettled([
+    supabase.from("chat_messages").insert([{ thread_id: threadId, role: "user", content: userStoredContent }]),
+    // Touch recency + auto-title untitled threads from the first message.
+    supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId),
+  ]);
+  if (historyWrites[0].status === "rejected") {
+    console.warn("orchestrator user-message persist failed:", historyWrites[0].reason);
+  }
   const { data: threadRow } = await supabase.from("chat_threads").select("title").eq("id", threadId).single();
   if ((threadRow as { title?: string } | null)?.title === "New conversation") {
     await supabase.from("chat_threads").update({ title: titleFor(message) }).eq("id", threadId);
   }
 
-  const { data: history } = await supabase
-    .from("chat_messages")
-    .select("role, content")
-    .eq("thread_id", threadId)
-    .order("created_at", { ascending: true })
-    .limit(30);
-
-  const digest = await memoryRecall(userId, userStoredContent);
+  const [historyRes, digest] = await Promise.all([
+    supabase
+      .from("chat_messages")
+      .select("role, content")
+      .eq("thread_id", threadId)
+      .order("created_at", { ascending: true })
+      .limit(30),
+    memoryRecall(userId, userStoredContent),
+  ]);
+  const { data: history } = historyRes;
   const svc = createServiceClient();
 
   // Pre-fetch every attached issue/PR body so the orchestrator can write a
@@ -193,8 +229,8 @@ export async function POST(request: Request) {
         .single();
       const token = (tokenRow as { provider_token?: string } | null)?.provider_token;
       if (!token) return contexts;
-      const { Octokit } = await import("@octokit/rest");
-      const octokit = new Octokit({ auth: token });
+      const { createOctokit } = await import("@/lib/octokit");
+      const octokit = await createOctokit(token);
       const [owner, name] = selectedRepo.split("/");
       for (const issueAtt of issueAtts) {
         if (!issueAtt.number) continue;
@@ -544,24 +580,38 @@ export async function POST(request: Request) {
           messages.push({ role: "user", content: results });
         }
       } catch (err) {
-        const msg = `Orchestrator error: ${(err as Error).message.slice(0, 300)}`;
-        fullText += (fullText ? "\n\n" : "") + msg;
-        send({ delta: msg });
+        // Stream the failure as a typed error frame — never as chat text and
+        // never persisted into history (error text would pollute future context).
+        const msg = (err as Error).message.slice(0, 300);
+        send({ type: "error", error: msg, retryable: true });
       }
 
-      if (fullText) {
-        try {
-          await supabase
-            .from("chat_messages")
-            .insert([{ thread_id: threadId, role: "assistant", content: fullText, steps: executedSteps }]);
-        } catch {
-          // Older DBs without the steps column — fall back to content-only.
-          await supabase.from("chat_messages").insert([{ thread_id: threadId, role: "assistant", content: fullText }]);
-        }
-        void memoryRemember(userId, `Orchestrator chat: user asked "${userStoredContent.slice(0, 200)}", assistant replied "${fullText.slice(0, 300)}".`);
-      }
       send({ done: true, steps: executedSteps });
       controller.close();
+      if (fullText) {
+        const content = fullText;
+        const steps = executedSteps;
+        void (async () => {
+          try {
+            const { error } = await supabase
+              .from("chat_messages")
+              .insert([{ thread_id: threadId, role: "assistant", content, steps }]);
+            if (error) {
+              // Older DBs without the steps column — fall back to content-only.
+              await supabase.from("chat_messages").insert([{ thread_id: threadId, role: "assistant", content }]);
+            }
+          } catch {
+            // Non-fatal, stream already closed.
+          }
+        })();
+        void (async () => {
+          try {
+            await memoryRemember(userId, `Orchestrator chat: user asked "${userStoredContent.slice(0, 200)}", assistant replied "${content.slice(0, 300)}".`);
+          } catch (err) {
+            console.warn("memoryRemember failed:", err);
+          }
+        })();
+      }
     },
   });
 

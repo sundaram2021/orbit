@@ -13,6 +13,7 @@ interface StatusData {
   lastEventAt: string | null;
   stale: boolean;
   autoApprove: boolean;
+  loadError: boolean;
 }
 
 function timeAgo(iso: string | null): string {
@@ -34,7 +35,7 @@ export function OrchestratorStatus() {
         fetch("/api/agents?which=events"),
         fetch("/api/settings"),
       ]);
-      if (!aRes.ok) return;
+      if (!aRes.ok) throw new Error(`agents (${aRes.status})`);
       const { agents } = (await aRes.json()) as { agents: SubAgent[] };
       const evals = eRes.ok
         ? (((await eRes.json()) as { evaluations: Evaluation[] }).evaluations ?? [])
@@ -46,34 +47,69 @@ export function OrchestratorStatus() {
         ? (((await sRes.json()) as { settings: UserSettings }).settings)
         : null;
       const today = new Date().toISOString().slice(0, 10);
-      const scores = evals.map((e) => Number(e.score)).filter((n) => !Number.isNaN(n));
+      let awaiting = 0;
+      let running = 0;
+      let completedToday = 0;
+      for (const a of agents) {
+        if (a.status === "awaiting_approval") awaiting++;
+        else if (a.status === "running") running++;
+        else if (a.status === "completed" && (a.created_at ?? "").slice(0, 10) === today) completedToday++;
+      }
+      let scoreSum = 0;
+      let scoreCount = 0;
+      for (const e of evals) {
+        const n = Number(e.score);
+        if (!Number.isNaN(n)) {
+          scoreSum += n;
+          scoreCount++;
+        }
+      }
       const lastEventAt = events[0]?.created_at ?? null;
       setData({
-        awaiting: agents.filter((a) => a.status === "awaiting_approval").length,
-        running: agents.filter((a) => a.status === "running").length,
-        completedToday: agents.filter(
-          (a) => a.status === "completed" && (a.created_at ?? "").slice(0, 10) === today
-        ).length,
-        avgScore: scores.length
-          ? Math.round((scores.reduce((s, v) => s + v, 0) / scores.length) * 10) / 10
+        awaiting,
+        running,
+        completedToday,
+        avgScore: scoreCount
+          ? Math.round((scoreSum / scoreCount) * 10) / 10
           : 0,
         lastEventAt,
         stale: lastEventAt
           ? Date.now() - new Date(lastEventAt).getTime() > 10 * 60 * 1000
           : true,
         autoApprove: settings?.orchestrator_auto_approve ?? false,
+        loadError: false,
       });
     } catch {
-      // strip stays empty on error
+      // Don't report "stale cron" when the fetch itself failed — flag the
+      // strip as errored so the user retries instead of misdiagnosing.
+      setData((prev) =>
+        prev
+          ? { ...prev, loadError: true }
+          : {
+              awaiting: 0,
+              running: 0,
+              completedToday: 0,
+              avgScore: 0,
+              lastEventAt: null,
+              stale: false,
+              autoApprove: false,
+              loadError: true,
+            }
+      );
     }
   }, []);
+
+  const handleRetry = useCallback(() => {
+    setData(null);
+    void load().catch(() => {});
+  }, [load]);
 
   useEffect(() => {
     // Intentional: fetch status on mount, then poll + refresh events.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-    const t = setInterval(load, 15000);
-    const onRefresh = () => void load();
+    void load().catch(() => {});
+    const t = setInterval(() => void load().catch(() => {}), 15000);
+    const onRefresh = () => void load().catch(() => {});
     window.addEventListener("orbit:refresh", onRefresh);
     return () => {
       clearInterval(t);
@@ -82,6 +118,19 @@ export function OrchestratorStatus() {
   }, [load]);
 
   const stale = data?.stale ?? true;
+  const loadError = data?.loadError ?? false;
+
+  if (!data) {
+    return (
+      <section className="panel status-strip" aria-busy="true" aria-label="Orchestrator status">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="status-item">
+            <div className="animate-pulse rounded-md bg-muted/60 h-8 w-24" aria-hidden="true" />
+          </div>
+        ))}
+      </section>
+    );
+  }
 
   return (
     <section className="panel status-strip" aria-label="Orchestrator status">
@@ -92,31 +141,37 @@ export function OrchestratorStatus() {
           <small>OAuth connected</small>
         </div>
       </div>
-      <div className="status-item" title={stale ? "No GitHub events seen for a while — check the poller" : "Poller is delivering events"}>
+      <div className="status-item" title={loadError ? "Couldn't refresh status — click to retry" : stale ? "No GitHub events seen for a while — check the poller" : "Poller is delivering events"}>
         <Radio className="size-4" />
         <div>
-          <p>Poll {data ? timeAgo(data.lastEventAt) : "…"}</p>
-          <small className={stale ? "status-warn" : ""}>{stale ? "stale — check cron" : "healthy"}</small>
+          <p>Poll {timeAgo(data.lastEventAt)}</p>
+          {loadError ? (
+            <button type="button" className="status-warn" onClick={handleRetry}>
+              refresh failed — retry
+            </button>
+          ) : (
+            <small className={stale ? "status-warn" : ""}>{stale ? "stale — check cron" : "healthy"}</small>
+          )}
         </div>
       </div>
       <div className="status-item">
         <Clock className="size-4" />
         <div>
-          <p>{data ? `${data.awaiting} waiting · ${data.running} running` : "…"}</p>
-          <small>{data ? `${data.completedToday} completed today` : "loading"}</small>
+          <p>{`${data.awaiting} waiting · ${data.running} running`}</p>
+          <small>{`${data.completedToday} completed today`}</small>
         </div>
       </div>
       <div className="status-item">
         <Star className="size-4" />
         <div>
-          <p>{data ? (data.avgScore > 0 ? `${data.avgScore}/100` : "no scores") : "…"}</p>
+          <p>{data.avgScore > 0 ? `${data.avgScore}/100` : "no scores"}</p>
           <small>mean eval score</small>
         </div>
       </div>
       <div className="status-item">
         <Zap className="size-4" />
         <div>
-          <p>Auto-approve {data ? (data.autoApprove ? "on" : "off") : "…"}</p>
+          <p>Auto-approve {data.autoApprove ? "on" : "off"}</p>
           <small>settings → automation</small>
         </div>
       </div>

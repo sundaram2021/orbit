@@ -1,9 +1,5 @@
-import {
-  fetchServerOrbitUser,
-  fetchServerTasks,
-  fetchServerActivities,
-  fetchServerRepositories,
-} from "@/lib/supabase-server-helpers";
+import { Suspense } from "react";
+import { fetchServerOrbitUser } from "@/lib/supabase-server-helpers";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 
 export const metadata = {
@@ -12,20 +8,30 @@ export const metadata = {
     "Your Orbit workspace: orchestrate agents, follow tasks, and explore evaluation traces.",
 };
 
-export default async function DashboardPage() {
-  const [user, tasks, activities, repositories] = await Promise.all([
-    fetchServerOrbitUser(),
-    fetchServerTasks(),
-    fetchServerActivities(),
-    fetchServerRepositories(),
-  ]);
+async function DashboardContent() {
+  const user = await fetchServerOrbitUser();
+  return <DashboardView initialUser={user} />;
+}
 
+function DashboardSkeleton() {
   return (
-    <DashboardView
-      initialUser={user}
-      initialTasks={tasks}
-      initialActivities={activities}
-      initialRepositories={repositories}
-    />
+    <main className="dashboard" aria-busy="true" aria-label="Loading workspace">
+      <div className="dash-main">
+        <div className="dash-content space-y-3 p-4">
+          <div className="animate-pulse rounded-md bg-muted/60 h-10 w-1/3" aria-hidden="true" />
+          <div className="animate-pulse rounded-md bg-muted/60 h-24 w-full" aria-hidden="true" />
+          <div className="animate-pulse rounded-md bg-muted/60 h-40 w-full" aria-hidden="true" />
+          <div className="animate-pulse rounded-md bg-muted/60 h-40 w-full" aria-hidden="true" />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<DashboardSkeleton />}>
+      <DashboardContent />
+    </Suspense>
   );
 }

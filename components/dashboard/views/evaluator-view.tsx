@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Brain, Loader2, Search, ChevronDown } from "lucide-react";
+import { Brain, Search, ChevronDown } from "lucide-react";
 import { SubAgent, Evaluation } from "@/types/orbit-types";
+import { CardSkeleton, FetchError } from "@/components/common/loading";
 
 type StatusFilter = "all" | Evaluation["status"];
 
@@ -13,8 +14,10 @@ const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "dismissed", label: "Dismissed" },
 ];
 
+const REPO_RE = /Repo:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/;
+
 function extractRepo(systemPrompt: string): string | null {
-  const m = systemPrompt.match(/Repo:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/);
+  const m = REPO_RE.exec(systemPrompt);
   return m ? m[1] : null;
 }
 
@@ -22,9 +25,11 @@ export function EvaluatorView() {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [agents, setAgents] = useState<Record<string, SubAgent>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const deferredQuery = React.useDeferredValue(query);
 
   const load = useCallback(async () => {
     try {
@@ -32,25 +37,40 @@ export function EvaluatorView() {
         fetch("/api/agents?which=evaluations"),
         fetch("/api/agents"),
       ]);
+      let failed = false;
       if (eRes.ok) {
         const data = (await eRes.json()) as { evaluations: Evaluation[] };
         setEvaluations(data.evaluations ?? []);
+      } else {
+        failed = true;
       }
       if (aRes.ok) {
         const data = (await aRes.json()) as { agents: SubAgent[] };
         const map: Record<string, SubAgent> = {};
         for (const a of data.agents ?? []) map[a.id] = a;
         setAgents(map);
+      } else {
+        failed = true;
       }
+      setLoadError(failed ? "Some data couldn't load. Showing what's available." : null);
+    } catch {
+      setLoadError("Couldn't load evaluations. Check your connection and retry.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    setLoadError(null);
+    void load().catch(() => {});
+  }, [load]);
+
   useEffect(() => {
-    void load();
-    const t = setInterval(load, 20000);
-    const onRefresh = () => void load();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load().catch(() => {});
+    const t = setInterval(() => void load().catch(() => {}), 20000);
+    const onRefresh = () => void load().catch(() => {});
     window.addEventListener("orbit:refresh", onRefresh);
     return () => {
       clearInterval(t);
@@ -58,18 +78,14 @@ export function EvaluatorView() {
     };
   }, [load]);
 
-  const avg = useMemo(
-    () =>
-      evaluations.length
-        ? Math.round(
-            (evaluations.reduce((s, e) => s + Number(e.score), 0) / evaluations.length) * 10
-          ) / 10
-        : 0,
-    [evaluations]
-  );
+  const avg = useMemo(() => {
+    let sum = 0;
+    for (const e of evaluations) sum += Number(e.score);
+    return evaluations.length ? Math.round((sum / evaluations.length) * 10) / 10 : 0;
+  }, [evaluations]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     return evaluations.filter((e) => {
       if (filter !== "all" && e.status !== filter) return false;
       if (!q) return true;
@@ -80,7 +96,7 @@ export function EvaluatorView() {
         (e.summary ?? "").toLowerCase().includes(q)
       );
     });
-  }, [evaluations, agents, query, filter]);
+  }, [evaluations, agents, deferredQuery, filter]);
 
   return (
     <div>
@@ -120,13 +136,18 @@ export function EvaluatorView() {
         />
       </div>
 
-      {isLoading && (
-        <div className="chat-loading">
-          <Loader2 className="size-4 animate-spin" /> Loading evaluations…
-        </div>
-      )}
+      {loadError && !isLoading ? (
+        <FetchError message={loadError} onRetry={handleRetry} />
+      ) : null}
 
-      {!isLoading && filtered.length === 0 && (
+      {isLoading ? (
+        <div className="agent-list" aria-busy="true">
+          <CardSkeleton />
+          <CardSkeleton />
+        </div>
+      ) : null}
+
+      {!isLoading && !loadError && filtered.length === 0 && (
         <section className="panel">
           <div className="panel-empty">
             {evaluations.length === 0

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   Bot,
   Wrench,
@@ -33,8 +33,16 @@ const KIND_ICON: Record<string, React.ReactNode> = {
 
 type DetailTab = "prompt" | "log" | "eval";
 
+const REPO_RE = /Repo:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/;
+
+const DETAIL_TABS: { id: DetailTab; label: string }[] = [
+  { id: "prompt", label: "Prompt" },
+  { id: "log", label: "Run log" },
+  { id: "eval", label: "Evaluation" },
+];
+
 function extractRepo(systemPrompt: string): string | null {
-  const m = systemPrompt.match(/Repo:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/);
+  const m = REPO_RE.exec(systemPrompt);
   return m ? m[1] : null;
 }
 
@@ -73,12 +81,16 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
   const [tab, setTab] = useState<DetailTab>("prompt");
   const [copied, setCopied] = useState(false);
   const [acting, setActing] = useState<"approve" | "cancel" | null>(null);
+  const [actError, setActError] = useState<string | null>(null);
   const r = (agent.result ?? {}) as AgentResult;
-  const repo = r.repo ?? extractRepo(agent.system_prompt) ?? "";
-  const stageList = stages(agent, evaluation);
-  const dur = duration(agent, evaluation);
+  const repo = useMemo(
+    () => r.repo ?? extractRepo(agent.system_prompt) ?? "",
+    [r.repo, agent.system_prompt]
+  );
+  const stageList = useMemo(() => stages(agent, evaluation), [agent, evaluation]);
+  const dur = useMemo(() => duration(agent, evaluation), [agent, evaluation]);
 
-  const copyPrompt = async () => {
+  const copyPrompt = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(agent.system_prompt);
       setCopied(true);
@@ -86,23 +98,36 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
     } catch {
       // clipboard unavailable
     }
-  };
+  }, [agent.system_prompt]);
 
-  const act = async (action: "approve" | "cancel") => {
-    setActing(action);
-    try {
-      await fetch(`/api/agents/${agent.id}/${action}`, { method: "POST" });
-      onChanged();
-    } finally {
-      setActing(null);
-    }
-  };
-
-  const tabs: { id: DetailTab; label: string }[] = [
-    { id: "prompt", label: "Prompt" },
-    { id: "log", label: "Run log" },
-    { id: "eval", label: "Evaluation" },
-  ];
+  const act = useCallback(
+    async (action: "approve" | "cancel") => {
+      setActing(action);
+      setActError(null);
+      try {
+        const res = await fetch(`/api/agents/${agent.id}/${action}`, { method: "POST" });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(data?.error ?? `${action} failed (${res.status})`);
+        }
+        onChanged();
+      } catch (err) {
+        setActError(`${action === "approve" ? "Approve" : "Cancel"} failed: ${(err as Error).message}. Retry.`);
+        window.dispatchEvent(
+          new CustomEvent("orbit:toast", {
+            detail: {
+              id: `toast-act-${agent.id}-${Date.now()}`,
+              title: `${action === "approve" ? "Approve" : "Cancel"} failed`,
+              body: (err as Error).message.slice(0, 120),
+            },
+          })
+        );
+      } finally {
+        setActing(null);
+      }
+    },
+    [agent.id, onChanged]
+  );
 
   return (
     <section className="panel agent-card">
@@ -111,7 +136,7 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
         <div>
           <p>{agent.title}</p>
           <div className="agent-meta">
-            {repo && <span className="mono">{repo}</span>}
+            {repo ? <span className="mono">{repo}</span> : null}
             {r.issue_number != null && (
               <a
                 href={r.issue_url ?? (repo ? `https://github.com/${repo}/issues/${r.issue_number}` : undefined)}
@@ -136,7 +161,7 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
               agent.status === "completed" && <span className="item-meta">no changes</span>
             )}
             <span className="item-meta">{formatRelativeTime(agent.created_at)}</span>
-            {dur && <span className="item-meta">took {dur}</span>}
+            {dur ? <span className="item-meta">took {dur}</span> : null}
             {agent.eval_score != null && <span className="item-meta">score {agent.eval_score}</span>}
           </div>
         </div>
@@ -156,16 +181,21 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
       </div>
 
       <div className="agent-actions">
-        {agent.status === "awaiting_approval" && (
+        {actError ? (
+          <div className="chat-error" role="alert" style={{ flexBasis: "100%" }}>
+            {actError}
+          </div>
+        ) : null}
+        {agent.status === "awaiting_approval" ? (
           <button type="button" disabled={acting !== null} onClick={() => void act("approve")} className="approval-btn approval-approve">
-            {acting === "approve" ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} Approve &amp; run
+            {acting === "approve" ? <span className="inline-flex animate-spin"><Loader2 className="size-3.5" /></span> : <Play className="size-3.5" />} Approve &amp; run
           </button>
-        )}
-        {(agent.status === "awaiting_approval" || agent.status === "running") && (
+        ) : null}
+        {(agent.status === "awaiting_approval" || agent.status === "running") ? (
           <button type="button" disabled={acting !== null} onClick={() => void act("cancel")} className="approval-btn approval-reject">
-            {acting === "cancel" ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />} Cancel
+            {acting === "cancel" ? <span className="inline-flex animate-spin"><Loader2 className="size-3.5" /></span> : <X className="size-3.5" />} Cancel
           </button>
-        )}
+        ) : null}
         {r.pr_url && (
           <a href={r.pr_url} target="_blank" rel="noreferrer" className="approval-btn approval-reject">
             Open PR <ExternalLink className="size-3" />
@@ -176,7 +206,7 @@ export function AgentCard({ agent, evaluation, onChanged }: AgentCardProps) {
       {expanded && (
         <div className="agent-card-body">
           <div className="detail-tabs" role="tablist">
-            {tabs.map((t) => (
+            {DETAIL_TABS.map((t) => (
               <button
                 key={t.id}
                 type="button"

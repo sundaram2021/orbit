@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Loader2,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { SubAgent } from "@/types/orbit-types";
 import { formatRelativeTime } from "@/lib/format-helpers";
+import { LogSkeleton, FetchError } from "@/components/common/loading";
 
 function getStatusBadge(status?: string) {
   switch (status) {
@@ -31,6 +31,23 @@ function getStatusBadge(status?: string) {
   }
 }
 
+const UNDERSCORE_RE = /_/g;
+
+const NO_TRACES_EMPTY = (
+  <section className="panel">
+    <div className="panel-empty">
+      No agents found matching the selected filter. Run an agent to see execution traces here.
+    </div>
+  </section>
+);
+
+function classifyLogLine(line: string): string {
+  if (line.startsWith("[tools:") || line.includes("tool call:")) return "text-amber-400 font-semibold";
+  if (line.startsWith("[step") || line.startsWith("Step ")) return "text-sky-400 font-medium";
+  if (line.startsWith("stdout:") || line.startsWith("stderr:")) return "text-zinc-400";
+  if (line.includes("completed") || line.includes("Finished")) return "text-emerald-400 font-semibold";
+  return "text-zinc-300";
+}
 function getKindBadge(kind?: string) {
   switch (kind) {
     case "review":
@@ -49,32 +66,46 @@ export function TracesView() {
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "logs" | "running" | "completed" | "failed">("all");
   const [selectedAgentId, setSelectedAgentId] = useState<string>("all");
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [, setUserExpanded] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const deferredFilter = React.useDeferredValue(filter);
+  const deferredAgentId = React.useDeferredValue(selectedAgentId);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/agents");
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`load failed (${res.status})`);
       const data = (await res.json()) as { agents: SubAgent[] };
       const list = data.agents ?? [];
       setAgents(list);
-      // Auto-expand the most recent agent on initial load if none expanded
-      setExpandedIds((prev) => {
-        if (prev.size === 0 && list.length > 0) {
-          return new Set([list[0].id]);
+      setLoadError(null);
+      // Auto-expand the most recent agent on initial load if user never toggled.
+      setUserExpanded((touched) => {
+        if (!touched && list.length > 0) {
+          setExpandedIds(new Set([list[0].id]));
         }
-        return prev;
+        return touched;
       });
+    } catch {
+      setLoadError("Couldn't load traces. Check your connection and retry.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    setLoadError(null);
+    void load().catch(() => {});
+  }, [load]);
+
   useEffect(() => {
-    void load();
-    const t = setInterval(load, 20000);
-    const onRefresh = () => void load();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load().catch(() => {});
+    const t = setInterval(() => void load().catch(() => {}), 20000);
+    const onRefresh = () => void load().catch(() => {});
     window.addEventListener("orbit:refresh", onRefresh);
     return () => {
       clearInterval(t);
@@ -83,6 +114,7 @@ export function TracesView() {
   }, [load]);
 
   const toggleExpand = (id: string) => {
+    setUserExpanded(true);
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -92,10 +124,12 @@ export function TracesView() {
   };
 
   const expandAll = () => {
+    setUserExpanded(true);
     setExpandedIds(new Set(agents.map((a) => a.id)));
   };
 
   const collapseAll = () => {
+    setUserExpanded(true);
     setExpandedIds(new Set());
   };
 
@@ -110,20 +144,25 @@ export function TracesView() {
   };
 
   const filteredAgents = useMemo(() => {
+    const f = deferredFilter;
+    const sel = deferredAgentId;
     return agents.filter((a) => {
-      if (selectedAgentId !== "all" && a.id !== selectedAgentId) return false;
-      if (filter === "logs") return Boolean(a.run_log && a.run_log.trim());
-      if (filter === "running") return a.status === "running";
-      if (filter === "completed") return a.status === "completed";
-      if (filter === "failed") return a.status === "failed";
+      if (sel !== "all" && a.id !== sel) return false;
+      if (f === "logs") return Boolean(a.run_log && a.run_log.trim());
+      if (f === "running") return a.status === "running";
+      if (f === "completed") return a.status === "completed";
+      if (f === "failed") return a.status === "failed";
       return true;
     });
-  }, [agents, filter, selectedAgentId]);
+  }, [agents, deferredFilter, deferredAgentId]);
 
-  const withLogsCount = useMemo(
-    () => agents.filter((a) => Boolean(a.run_log && a.run_log.trim())).length,
-    [agents]
-  );
+  const withLogsCount = useMemo(() => {
+    let n = 0;
+    for (const a of agents) {
+      if (a.run_log && a.run_log.trim()) n++;
+    }
+    return n;
+  }, [agents]);
 
   return (
     <div>
@@ -189,41 +228,78 @@ export function TracesView() {
         </div>
       </div>
 
-      {isLoading && (
-        <div className="chat-loading">
-          <Loader2 className="size-4 animate-spin" /> Loading traces…
+      {loadError && !isLoading ? (
+        <FetchError message={loadError} onRetry={handleRetry} />
+      ) : null}
+
+      {isLoading ? (
+        <div aria-busy="true">
+          <LogSkeleton />
+          <LogSkeleton />
         </div>
-      )}
+      ) : null}
 
-      {!isLoading && filteredAgents.length === 0 && (
-        <section className="panel">
-          <div className="panel-empty">
-            No agents found matching the selected filter. Run an agent to see execution traces here.
-          </div>
-        </section>
-      )}
+      {!isLoading && !loadError && filteredAgents.length === 0
+        ? (agents.length === 0 ? NO_TRACES_EMPTY : (
+          <section className="panel">
+            <div className="panel-empty">
+              No traces match the selected filter. Adjust the filters to see more.
+            </div>
+          </section>
+        ))
+        : null}
 
-      {filteredAgents.map((a) => {
-        const isExpanded = expandedIds.has(a.id);
-        const log = a.run_log?.trim() ?? "";
-        const lineCount = log ? log.split("\n").length : 0;
+      {filteredAgents.map((a) => (
+        <TraceCard
+          key={a.id}
+          agent={a}
+          expanded={expandedIds.has(a.id)}
+          onToggle={() => toggleExpand(a.id)}
+          copied={copiedId === a.id}
+          onCopy={(log) => void copyLog(a.id, log)}
+        />
+      ))}
+    </div>
+  );
+}
 
-        return (
+function TraceCard({
+  agent: a,
+  expanded: isExpanded,
+  onToggle,
+  copied,
+  onCopy,
+}: {
+  agent: SubAgent;
+  expanded: boolean;
+  onToggle: () => void;
+  copied: boolean;
+  onCopy: (log: string) => void;
+}) {
+  const lines = useMemo(() => {
+    const log = a.run_log?.trim() ?? "";
+    if (!log) return [] as string[];
+    const all = log.split("\n");
+    return all.length > 400 ? all.slice(0, 400) : all;
+  }, [a.run_log]);
+  const log = a.run_log?.trim() ?? "";
+  const lineCount = log ? lines.length : 0;
+  return (
           <section
             key={a.id}
             className="panel transition-all duration-150"
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 16, contentVisibility: "auto", containIntrinsicSize: "0 320px" }}
           >
             {/* Clickable Dropdown Header */}
             <div
-              onClick={() => toggleExpand(a.id)}
+              onClick={onToggle}
               className="panel-heading cursor-pointer select-none hover:bg-accent/40 transition-colors flex items-center justify-between gap-3 px-4 py-3"
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  toggleExpand(a.id);
+                  onToggle();
                 }
               }}
               aria-expanded={isExpanded}
@@ -248,14 +324,14 @@ export function TracesView() {
                 </span>
 
                 <span className={`px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider rounded border ${getStatusBadge(a.status)}`}>
-                  {(a.status ?? "").replace(/_/g, " ")}
+                  {(a.status ?? "").replace(UNDERSCORE_RE, " ")}
                 </span>
 
-                {a.eval_score != null && (
+                {a.eval_score != null ? (
                   <span className="mono text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-semibold">
                     SCORE {a.eval_score}
                   </span>
-                )}
+                ) : null}
 
                 <span className="text-[11px] text-muted-foreground hidden sm:inline">
                   {formatRelativeTime(a.created_at)}
@@ -264,7 +340,7 @@ export function TracesView() {
             </div>
 
             {/* Dropdown Content */}
-            {isExpanded && (
+            {isExpanded ? (
               <div className="border-t border-border/60 bg-card/50 p-4 space-y-3">
                 {/* Agent Metadata Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground pb-2 border-b border-border/40">
@@ -305,23 +381,23 @@ export function TracesView() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {lineCount > 0 && (
+                    {lineCount > 0 ? (
                       <span className="text-[11px] text-muted-foreground mono">
                         {lineCount} lines
                       </span>
-                    )}
+                    ) : null}
 
-                    {log && (
+                    {log ? (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          void copyLog(a.id, log);
+                          onCopy(log);
                         }}
                         className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-input bg-background hover:bg-accent cursor-pointer transition-colors"
                         title="Copy execution trace to clipboard"
                       >
-                        {copiedId === a.id ? (
+                        {copied ? (
                           <>
                             <Check className="size-3 text-emerald-500" />
                             <span className="text-emerald-500 font-medium">Copied!</span>
@@ -333,31 +409,18 @@ export function TracesView() {
                           </>
                         )}
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
                 {/* Log display */}
                 {log ? (
                   <div className="relative rounded-md border border-border/80 bg-black/60 p-3.5 font-mono text-[11.5px] leading-relaxed text-zinc-200 overflow-x-auto max-h-[500px] overflow-y-auto space-y-1 shadow-inner">
-                    {log.split("\n").map((line, idx) => {
-                      const isToolCall = line.startsWith("[tools:") || line.includes("tool call:");
-                      const isStep = line.startsWith("[step") || line.startsWith("Step ");
-                      const isOutput = line.startsWith("stdout:") || line.startsWith("stderr:");
-                      const isCompleted = line.includes("completed") || line.includes("Finished");
-
-                      let lineClass = "text-zinc-300";
-                      if (isToolCall) lineClass = "text-amber-400 font-semibold";
-                      else if (isStep) lineClass = "text-sky-400 font-medium";
-                      else if (isOutput) lineClass = "text-zinc-400";
-                      else if (isCompleted) lineClass = "text-emerald-400 font-semibold";
-
-                      return (
-                        <div key={idx} className={`whitespace-pre-wrap break-all ${lineClass}`}>
-                          {line || "\u00A0"}
-                        </div>
-                      );
-                    })}
+                    {lines.map((line, idx) => (
+                      <div key={idx} className={`whitespace-pre-wrap break-all ${classifyLogLine(line)}`}>
+                        {line || " "}
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="py-6 text-center text-xs text-muted-foreground bg-muted/20 rounded-md border border-dashed border-border">
@@ -367,10 +430,7 @@ export function TracesView() {
                   </div>
                 )}
               </div>
-            )}
+            ) : null}
           </section>
-        );
-      })}
-    </div>
   );
 }

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { Octokit } from "@octokit/rest";
 import { createOrbitServerClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-service";
+import { createOctokit, githubErrorMessage } from "@/lib/octokit";
+import { withTimeout } from "@/lib/fetch-utils";
 
 /** Live repo list for the repo selector (user's GitHub, not the stale table). */
 export async function GET() {
@@ -21,12 +22,25 @@ export async function GET() {
   if (!token) return NextResponse.json({ repos: [], error: "github not connected" });
 
   try {
-    const octokit = new Octokit({ auth: token });
-    const repos = await octokit.paginate(octokit.repos.listForAuthenticatedUser, {
-      affiliation: "owner,collaborator,organization_member",
-      sort: "pushed",
-      per_page: 100,
-    });
+    const octokit = await createOctokit(token);
+    // Cap at 3 pages (300 repos) within a 25s budget — unbounded paginate
+    // on large orgs would blow the route's maxDuration.
+    const { result: repos, timedOut } = await withTimeout(
+      octokit.paginate(
+        octokit.repos.listForAuthenticatedUser,
+        {
+          affiliation: "owner,collaborator,organization_member",
+          sort: "pushed",
+          per_page: 100,
+        },
+        (response) => response.data.slice(0, 300)
+      ),
+      25000,
+      "repos list"
+    );
+    if (timedOut || !repos) {
+      return NextResponse.json({ repos: [], error: "GitHub timed out — retry." }, { status: 502 });
+    }
     return NextResponse.json({
       repos: repos.slice(0, 100).map((r) => ({
         full_name: r.full_name,
@@ -36,6 +50,6 @@ export async function GET() {
       })),
     });
   } catch (err) {
-    return NextResponse.json({ repos: [], error: (err as Error).message.slice(0, 200) });
+    return NextResponse.json({ repos: [], error: githubErrorMessage(err) }, { status: 502 });
   }
 }

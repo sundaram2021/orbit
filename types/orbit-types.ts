@@ -119,7 +119,7 @@ export type ApprovalKind =
   | "close_issue"
   | "close_pr";
 
-export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "executing" | "failed";
 
 export interface Approval {
   id: string;

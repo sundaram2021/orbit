@@ -1,6 +1,8 @@
 import { orbitEnv } from "../env";
+import { fetchWithTimeout, safeJson } from "../fetch-utils";
 
 const API = "https://api.tensorlake.ai";
+const FETCH_TIMEOUT_MS = 20000;
 
 export interface SandboxHandle {
   id: string;
@@ -11,6 +13,7 @@ export interface ExecResult {
   exitCode: number | null;
   stdout: string;
   stderr: string;
+  timedOut?: boolean;
 }
 
 function authHeaders(): Record<string, string> {
@@ -28,12 +31,17 @@ function shouldMock(): boolean {
 export async function listSandboxes(): Promise<Array<{ id: string; name?: string; status?: string }>> {
   if (shouldMock()) return [];
   try {
-    const res = await fetch(`${API}/sandboxes`, {
-      method: "GET",
-      headers: authHeaders(),
-    });
+    const res = await fetchWithTimeout(
+      `${API}/sandboxes`,
+      { method: "GET", headers: authHeaders() },
+      FETCH_TIMEOUT_MS
+    );
     if (!res.ok) return [];
-    const data = await res.json() as { sandboxes?: Array<{ id: string; name?: string; status?: string }>; data?: Array<{ id: string; name?: string; status?: string }> } | Array<{ id: string; name?: string; status?: string }>;
+    const data = await safeJson<
+      | { sandboxes?: Array<{ id: string; name?: string; status?: string }>; data?: Array<{ id: string; name?: string; status?: string }> }
+      | Array<{ id: string; name?: string; status?: string }>
+    >(res);
+    if (!data) return [];
     if (Array.isArray(data)) return data;
     return data.sandboxes ?? data.data ?? [];
   } catch {
@@ -41,15 +49,22 @@ export async function listSandboxes(): Promise<Array<{ id: string; name?: string
   }
 }
 
-/** Terminate any orphaned/dangling sandboxes. */
-export async function cleanupSandboxes(): Promise<number> {
+/**
+ * Terminate orphaned sandboxes. Scoped by name prefix — never touches
+ * sandboxes outside our prefix (other users' live runs are safe).
+ */
+export async function cleanupSandboxes(namePrefix = "orbit-"): Promise<number> {
   const sandboxes = await listSandboxes();
   let cleaned = 0;
   for (const s of sandboxes) {
     const id = s.id;
-    if (id) {
+    if (!id) continue;
+    if (namePrefix && s.name && !s.name.startsWith(namePrefix)) continue;
+    try {
       await destroySandbox({ id, mock: false });
       cleaned++;
+    } catch (err) {
+      console.warn(`cleanup sandbox ${id} failed:`, err);
     }
   }
   return cleaned;
@@ -61,32 +76,29 @@ export async function createSandbox(name: string): Promise<SandboxHandle> {
     console.warn("TensorLake: MOCK mode (no API key or TENSORLAKE_MOCK=true)");
     return { id: `mock-${Date.now().toString(36)}`, mock: true };
   }
-  let res = await fetch(`${API}/sandboxes`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({
-      name,
-      network: { allow_internet_access: true },
-      timeout_secs: 3600,
-      wait: true,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    if (/quota/i.test(text)) {
-      console.warn("TensorLake quota reached — attempting auto-cleanup of orphaned sandboxes...");
-      await cleanupSandboxes();
-      // Retry once after cleanup
-      res = await fetch(`${API}/sandboxes`, {
+  const createOnce = (sandboxName: string) =>
+    fetchWithTimeout(
+      `${API}/sandboxes`,
+      {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({
-          name: `${name}-retry`,
+          name: sandboxName,
           network: { allow_internet_access: true },
           timeout_secs: 3600,
           wait: true,
         }),
-      });
+      },
+      45000
+    );
+  let res = await createOnce(name);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    if (/quota/i.test(text)) {
+      console.warn("TensorLake quota reached — attempting auto-cleanup of orphaned sandboxes...");
+      await cleanupSandboxes("orbit-");
+      // Retry once after cleanup
+      res = await createOnce(`${name}-retry`);
       if (!res.ok) {
         const retryText = await res.text().catch(() => "");
         throw new Error(`TensorLake create failed after quota cleanup (${res.status}): ${retryText.slice(0, 300)}`);
@@ -95,8 +107,8 @@ export async function createSandbox(name: string): Promise<SandboxHandle> {
       throw new Error(`TensorLake create failed (${res.status}): ${text.slice(0, 300)}`);
     }
   }
-  const data = (await res.json()) as { sandbox_id?: string; id?: string };
-  const id = data.sandbox_id ?? data.id;
+  const data = await safeJson<{ sandbox_id?: string; id?: string }>(res);
+  const id = data?.sandbox_id ?? data?.id;
   if (!id) throw new Error("TensorLake create: no sandbox_id in response");
   return { id, mock: false };
 }
@@ -107,7 +119,7 @@ async function startProcess(
   workingDir?: string,
   env?: Record<string, string>
 ): Promise<number> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://${sandboxId}.sandbox.tensorlake.ai/api/v1/processes`,
     {
       method: "POST",
@@ -120,11 +132,12 @@ async function startProcess(
         stdout_mode: "capture",
         stderr_mode: "capture",
       }),
-    }
+    },
+    FETCH_TIMEOUT_MS
   );
   if (!res.ok) throw new Error(`process start failed (${res.status})`);
-  const data = (await res.json()) as { pid?: number; handle?: number };
-  const pid = data.pid ?? data.handle;
+  const data = await safeJson<{ pid?: number; handle?: number }>(res);
+  const pid = data?.pid ?? data?.handle;
   if (pid == null) throw new Error("process start: no pid in response");
   return pid;
 }
@@ -133,16 +146,14 @@ async function processStatus(
   sandboxId: string,
   pid: number
 ): Promise<{ status: string; exitCode: number | null }> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://${sandboxId}.sandbox.tensorlake.ai/api/v1/processes/${pid}`,
-    { headers: authHeaders() }
+    { headers: authHeaders() },
+    FETCH_TIMEOUT_MS
   );
   if (!res.ok) throw new Error(`process status failed (${res.status})`);
-  const data = (await res.json()) as {
-    status?: string;
-    exit_code?: number | null;
-  };
-  return { status: data.status ?? "unknown", exitCode: data.exit_code ?? null };
+  const data = await safeJson<{ status?: string; exit_code?: number | null }>(res);
+  return { status: data?.status ?? "unknown", exitCode: data?.exit_code ?? null };
 }
 
 async function processOutput(
@@ -153,9 +164,10 @@ async function processOutput(
   // falling back to raw text for any other shape.
   const fetchStream = async (kind: "stdout" | "stderr"): Promise<string> => {
     try {
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `https://${sandboxId}.sandbox.tensorlake.ai/api/v1/processes/${pid}/${kind}`,
-        { headers: authHeaders() }
+        { headers: authHeaders() },
+        FETCH_TIMEOUT_MS
       );
       if (!res.ok) return "";
       const text = await res.text();
@@ -195,29 +207,43 @@ export async function sandboxExec(
   const deadline = Date.now() + (opts?.timeoutMs ?? 5 * 60 * 1000);
   let status = "running";
   let exitCode: number | null = null;
+  let statusFailures = 0;
   while (Date.now() < deadline) {
     await sleep(2000);
     try {
       const s = await processStatus(sandbox.id, pid);
       status = s.status;
       exitCode = s.exitCode;
+      statusFailures = 0;
     } catch {
-      break; // status endpoint unavailable — fall through to output
+      // Tolerate a couple of transient status failures; bail after 3 in a row.
+      statusFailures++;
+      if (statusFailures >= 3) break;
+      continue;
     }
     if (status === "exited" || status === "signaled" || status === "oom_killed") break;
   }
+  const timedOut = Date.now() >= deadline && status !== "exited" && status !== "signaled" && status !== "oom_killed";
   const { stdout, stderr } = await processOutput(sandbox.id, pid);
-  return { exitCode, stdout: stdout.slice(-8000), stderr: stderr.slice(-4000) };
+  return { exitCode, stdout: stdout.slice(-8000), stderr: stderr.slice(-4000), timedOut };
 }
 
-export async function destroySandbox(sandbox: SandboxHandle): Promise<void> {
+export async function destroySandbox(sandbox: SandboxHandle, retries = 2): Promise<void> {
   if (sandbox.mock) return;
-  try {
-    await fetch(`${API}/sandboxes/${encodeURIComponent(sandbox.id)}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    });
-  } catch (err) {
-    console.warn("TensorLake destroy failed:", err);
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(
+        `${API}/sandboxes/${encodeURIComponent(sandbox.id)}`,
+        { method: "DELETE", headers: authHeaders() },
+        FETCH_TIMEOUT_MS
+      );
+      if (res.ok || res.status === 404) return;
+      lastErr = new Error(`destroy failed (${res.status})`);
+    } catch (err) {
+      lastErr = err;
+    }
+    if (attempt < retries) await sleep(1000 * (attempt + 1));
   }
+  console.warn("TensorLake destroy failed:", lastErr);
 }
